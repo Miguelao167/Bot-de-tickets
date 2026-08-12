@@ -32,6 +32,7 @@ const CONFIG = {
   LOG_CHANNEL: process.env.LOG_CHANNEL,
   STAFF_ROLE_ID: process.env.STAFF_ROLE_ID,
   TICKET_SUPPORTER_ROLE_ID: process.env.TICKET_SUPPORTER_ROLE_ID,
+  WELCOME_CHANNEL: process.env.WELCOME_CHANNEL,
 
   colors: {
     primary: 0x6C5CE7,
@@ -1243,6 +1244,32 @@ client.on('messageCreate', async (message) => {
     });
     return;
   }
+});
+
+// ============================================
+// SISTEMA DE BOAS-VINDAS AUTOMÁTICAS
+// ============================================
+
+client.on('guildMemberAdd', async (member) => {
+  const welcomeChannel = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL);
+  if (!welcomeChannel) return;
+
+  const embed = new EmbedBuilder()
+    .setColor(CONFIG.colors.success)
+    .setTitle('🎉 Bem-vindo(a) à Vindra Code!')
+    .setDescription(`Olá ${member}, seja muito bem-vindo(a) ao nosso servidor!\n\nLeia as regras e aproveite o ambiente. 🚀`)
+    .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
+    .addFields(
+      { name: '👥 Membro', value: `**#${member.guild.memberCount}**`, inline: true },
+      { name: '📅 Conta criada', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true }
+    )
+    .setFooter({ text: 'Vindra Code • Vamos codar juntos!' })
+    .setTimestamp();
+
+  await welcomeChannel.send({
+    content: `${member} 👋`,
+    embeds: [embed]
+  });
 });
 
 // ============================================
