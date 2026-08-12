@@ -106,14 +106,26 @@ npm start
 
 | Comando | Descrição |
 |---------|-----------|
-| `/ticket-panel` | Cria/atualiza o painel de tickets |
-| `/ticket-close` | Fecha o ticket atual (no canal do ticket) |
-| `/ticket-info` | Mostra informações do ticket |
+| `!painel` | Cria o painel de tickets |
+| `!fechar` | Fecha o ticket atual |
+| `!info` | Mostra informações do ticket |
+| `!anuncio` | Envia mensagem estilizada com cor e imagem |
+| `!regras` | Envia embed de regras pronto |
+| `!vagas` | Anuncia vaga de emprego |
+| `!parceria` | Anuncia parceria |
+| `!boasvindas` | Dá boas-vindas a um novo membro |
+| `!helpembed` | Lista todos os comandos de embed |
+
+**Comandos de Embed (apenas staff):**
+- `!anuncio <titulo> | <descrição> | [cor hex] | [url imagem]`
+- `!regras` — embed pronto de regras
+- `!vagas <titulo> | <descrição> | [link]`
+- `!parceria <nome> | <descrição> | [link]`
+- `!boasvindas @user [mensagem]`
 
 **Dentro do Ticket:**
 - **📌 Claim** - Reivindicar o ticket para atendimento
 - **🔒 Fechar** - Fecha o ticket e salva transcrição
-- **➕ Adicionar** - Adicionar alguém ao ticket
 
 ## 🔧 Personalização
 

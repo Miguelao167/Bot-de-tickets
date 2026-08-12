@@ -736,7 +736,262 @@ client.on('messageCreate', async (message) => {
 
     await message.reply({ embeds: [infoEmbed] });
   }
+
+  // ===== Comandos de embed (apenas staff) =====
+  if (
+    command === 'anuncio' ||
+    command === 'regras' ||
+    command === 'vagas' ||
+    command === 'parceria' ||
+    command === 'boasvindas' ||
+    command === 'helpembed'
+  ) {
+    if (!isStaff(message.member)) {
+      return message.reply('❌ Apenas a staff pode usar comandos de embed.');
+    }
+
+    if (command === 'anuncio') return handleAnuncio(message, args);
+    if (command === 'regras') return handleRegras(message);
+    if (command === 'vagas') return handleVagas(message, args);
+    if (command === 'parceria') return handleParceria(message, args);
+    if (command === 'boasvindas') return handleBoasVindas(message, args);
+    if (command === 'helpembed') return handleHelpEmbed(message);
+  }
 });
+
+// ============================================
+// COMANDOS DE EMBED (mensagens estilizadas)
+// ============================================
+
+// Verifica se usuário é staff
+function isStaff(member) {
+  if (!member) return false;
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  if (CONFIG.STAFF_ROLE_ID && member.roles.cache.has(CONFIG.STAFF_ROLE_ID)) return true;
+  return false;
+}
+
+// Banner/imagem padrão (troque pelo link do banner da Vindra)
+const VINDRA_BANNER = 'https://i.imgur.com/placeholder.png';
+const VINDRA_LOGO = 'https://i.imgur.com/placeholder.png';
+
+// !anuncio <titulo> | <descrição> | [cor] | [imagem]
+async function handleAnuncio(message, args) {
+  const joined = args.join(' ');
+  const parts = joined.split('|').map((s) => s.trim());
+
+  if (parts.length < 2) {
+    return message.reply(
+      '❌ **Uso:** `!anuncio <titulo> | <descrição> | [cor hex] | [url da imagem]`\n' +
+      '**Exemplo:** `!anuncio Novidade! | Novo recurso disponível | #6C5CE7`'
+    );
+  }
+
+  const [title, description, colorHex, imageUrl] = parts;
+  const color = colorHex ? parseInt(colorHex.replace('#', ''), 16) : CONFIG.colors.primary;
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(title)
+    .setDescription(description)
+    .setImage(imageUrl || null)
+    .setFooter({ text: `Vindra Code • Anunciado por ${message.author.tag}` })
+    .setTimestamp();
+
+  try {
+    await message.delete();
+  } catch (e) {}
+
+  await message.channel.send({ embeds: [embed] });
+  const confirm = await message.channel.send('✅ Anúncio enviado!');
+  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+}
+
+// !regras - Envia embed de regras (canal #regras)
+async function handleRegras(message) {
+  const embed = new EmbedBuilder()
+    .setColor(CONFIG.colors.primary)
+    .setTitle('📜 Regras da Vindra Code')
+    .setDescription(
+      'Para manter a comunidade saudável, siga estas regras:'
+    )
+    .addFields(
+      {
+        name: '✅ Comportamento',
+        value:
+          '• Respeite todos os membros\n' +
+          '• Sem spam, flood ou caps lock excessivo\n' +
+          '• Sem conteúdo NSFW ou ofensivo',
+        inline: false,
+      },
+      {
+        name: '💬 Canais de texto',
+        value:
+          '• Use o canal correto para cada assunto\n' +
+          '• Evite mensagens excessivamente longas\n' +
+          '• Sem divulgação sem autorização',
+        inline: false,
+      },
+      {
+        name: '🔊 Canais de voz',
+        value:
+          '• Sem gritos ou sons irritantes\n' +
+          '• Respeite quem está falando',
+        inline: false,
+      },
+      {
+        name: '⚠️ Punições',
+        value:
+          'O descumprimento das regras resulta em advertência, mute ou ban, dependendo da gravidade.',
+        inline: false,
+      }
+    )
+    .setFooter({ text: 'Vindra Code • Leia com atenção' })
+    .setTimestamp();
+
+  try {
+    await message.delete();
+  } catch (e) {}
+
+  await message.channel.send({ embeds: [embed] });
+  const confirm = await message.channel.send('✅ Regras enviadas!');
+  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+}
+
+// !vagas <titulo> | <descrição> | [link]
+async function handleVagas(message, args) {
+  const joined = args.join(' ');
+  const parts = joined.split('|').map((s) => s.trim());
+
+  if (parts.length < 2) {
+    return message.reply(
+      '❌ **Uso:** `!vagas <titulo> | <descrição> | [link]`\n' +
+      '**Exemplo:** `!vagas Dev Frontend | Estamos contratando | https://...`'
+    );
+  }
+
+  const [title, description, link] = parts;
+
+  const embed = new EmbedBuilder()
+    .setColor(CONFIG.colors.success)
+    .setTitle(`💼 ${title}`)
+    .setDescription(description)
+    .addFields({
+      name: '🔗 Como se candidatar',
+      value: link || 'Entre em contato via ticket!',
+    })
+    .setFooter({ text: `Vindra Code • Postado por ${message.author.tag}` })
+    .setTimestamp();
+
+  try {
+    await message.delete();
+  } catch (e) {}
+
+  await message.channel.send({ embeds: [embed] });
+  const confirm = await message.channel.send('✅ Vaga anunciada!');
+  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+}
+
+// !parceria <nome> | <descrição> | [link]
+async function handleParceria(message, args) {
+  const joined = args.join(' ');
+  const parts = joined.split('|').map((s) => s.trim());
+
+  if (parts.length < 2) {
+    return message.reply(
+      '❌ **Uso:** `!parceria <nome> | <descrição> | [link]`'
+    );
+  }
+
+  const [title, description, link] = parts;
+
+  const embed = new EmbedBuilder()
+    .setColor(CONFIG.colors.info)
+    .setTitle(`🤝 ${title}`)
+    .setDescription(description)
+    .addFields({
+      name: '🔗 Mais informações',
+      value: link || 'Abra um ticket para saber mais!',
+    })
+    .setFooter({ text: `Vindra Code • Postado por ${message.author.tag}` })
+    .setTimestamp();
+
+  try {
+    await message.delete();
+  } catch (e) {}
+
+  await message.channel.send({ embeds: [embed] });
+  const confirm = await message.channel.send('✅ Parceria anunciada!');
+  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+}
+
+// !boasvindas @user [mensagem]
+async function handleBoasVindas(message, args) {
+  const user = message.mentions.users.first();
+  if (!user) {
+    return message.reply('❌ Mencione alguém: `!boasvindas @user [mensagem opcional]`');
+  }
+
+  const customMsg = args.slice(1).join(' ') || 'Seja bem-vindo(a) à nossa comunidade!';
+
+  const embed = new EmbedBuilder()
+    .setColor(CONFIG.colors.success)
+    .setTitle('🎉 Bem-vindo(a)!')
+    .setDescription(
+      `${user}, ${customMsg}\n\n` +
+      `📜 Leia as regras em <#${message.channel.id}>\n` +
+      `🎫 Qualquer dúvida, abra um ticket!`
+    )
+    .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
+    .setFooter({ text: `Vindra Code • Boas-vindas dadas por ${message.author.tag}` })
+    .setTimestamp();
+
+  try {
+    await message.delete();
+  } catch (e) {}
+
+  await message.channel.send({ content: `${user}`, embeds: [embed] });
+  const confirm = await message.channel.send('✅ Boas-vindas enviada!');
+  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+}
+
+// !helpembed - Lista os comandos de embed
+async function handleHelpEmbed(message) {
+  const embed = new EmbedBuilder()
+    .setColor(CONFIG.colors.primary)
+    .setTitle('📚 Comandos de Embed - Vindra Code')
+    .setDescription('Use estes comandos para enviar mensagens estilizadas (sem precisar de Nitro):')
+    .addFields(
+      {
+        name: '📢 !anuncio',
+        value: '`!anuncio <titulo> | <descrição> | [cor] | [imagem]`',
+      },
+      {
+        name: '📜 !regras',
+        value: '`!regras` (envia embed de regras no canal)',
+      },
+      {
+        name: '💼 !vagas',
+        value: '`!vagas <titulo> | <descrição> | [link]`',
+      },
+      {
+        name: '🤝 !parceria',
+        value: '`!parceria <nome> | <descrição> | [link]`',
+      },
+      {
+        name: '🎉 !boasvindas',
+        value: '`!boasvindas @user [mensagem]`',
+      },
+      {
+        name: '❓ !helpembed',
+        value: 'Mostra esta mensagem',
+      }
+    )
+    .setFooter({ text: 'Vindra Code • Apenas staff pode usar estes comandos' })
+    .setTimestamp();
+
+  await message.reply({ embeds: [embed] });
+}
 
 // ============================================
 // LOGIN
