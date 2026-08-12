@@ -1340,25 +1340,30 @@ async function sendToPrivateLeadsChannel(interaction, leadEmbed) {
   }
 
   // Envia o lead no canal privado COM botões de status
-  const statusRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`lead_status_interested_${userId}`)
-      .setLabel('🟣 Interessado')
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('🟣'),
-    new ButtonBuilder()
-      .setCustomId(`lead_status_progress_${userId}`)
-      .setLabel('🔵 Projeto em Andamento')
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('🔵'),
-    new ButtonBuilder()
-      .setCustomId(`lead_status_closed_${userId}`)
-      .setLabel('🟢 Venda Fechada')
-      .setStyle(ButtonStyle.Success)
-      .setEmoji('🟢')
-  );
+  const statusRow = buildLeadStatusRow(userId);
 
   await privateChannel.send({ embeds: [leadEmbed], components: [statusRow] });
+}
+
+// Monta os botões de status do lead
+function buildLeadStatusRow(userId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`lead_status_interested_${userId}`)
+      .setLabel('Interessado')
+      .setEmoji('🟣')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`lead_status_progress_${userId}`)
+      .setLabel('Projeto em Andamento')
+      .setEmoji('🔵')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`lead_status_closed_${userId}`)
+      .setLabel('Venda Fechada')
+      .setEmoji('🟢')
+      .setStyle(ButtonStyle.Success)
+  );
 }
 
 // Atualiza o status do lead no canal privado
@@ -1370,8 +1375,10 @@ async function handleLeadStatus(interaction) {
   const newStatus = parts[2];
   const ownerId = parts[3];
 
-  // Só o dono do canal privado (ou staff) pode alterar o status
-  if (interaction.user.id !== ownerId && !isStaff(interaction.member)) {
+  // Só o dono do canal privado (ou staff/admin/CEO) pode alterar o status
+  const isOwner = interaction.user.id === ownerId;
+  const isAdmin = isStaff(interaction.member);
+  if (!isOwner && !isAdmin) {
     return interaction.reply({
       content: '❌ Você não pode alterar este lead. Ele pertence ao canal privado de outro prospector.',
       ephemeral: true,
@@ -1418,7 +1425,6 @@ async function handleLeadStatus(interaction) {
     .setTimestamp();
 
   // Mensagem de confirmação visível só pra quem clicou (ephemeral)
-  const isOwner = interaction.user.id === ownerId;
   const confirmText = isOwner
     ? `✅ Status atualizado para **${statusInfo.label}**`
     : `✅ Status atualizado para **${statusInfo.label}** (alteração administrativa)`;
@@ -1428,8 +1434,11 @@ async function handleLeadStatus(interaction) {
     ephemeral: true,
   });
 
-  // Edita a embed original no canal com a nova cor e remove os botões
-  await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
+  // Prospector: botões somem (decisão definitiva dele).
+  // Admin/CEO: botões continuam ativos, pra conseguirem refinar o status depois.
+  const newComponents = isAdmin ? [buildLeadStatusRow(ownerId)] : [];
+
+  await interaction.message.edit({ embeds: [updatedEmbed], components: newComponents });
 }
 
 // Envia embed pronto de regras (sem preview, manda direto)
