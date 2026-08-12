@@ -1,6 +1,6 @@
 // ============================================
-// VINDRA CODE - SISTEMA DE TICKETS
-// Bot completo com painel, categorias e logs
+// VINDRA CODE - SISTEMA DE TICKETS + EMBEDS
+// Bot completo com painel, categorias, logs e comandos de embed
 // ============================================
 
 import 'dotenv/config';
@@ -113,6 +113,13 @@ function generateTicketId() {
   return `VND-${Date.now().toString(36).toUpperCase()}`;
 }
 
+function isStaff(member) {
+  if (!member) return false;
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  if (CONFIG.STAFF_ROLE_ID && member.roles.cache.has(CONFIG.STAFF_ROLE_ID)) return true;
+  return false;
+}
+
 async function getOrCreateCategory(guild, name, reason = 'Sistema de Tickets') {
   const existing = guild.channels.cache.find(
     (c) => c.name === name && c.type === ChannelType.GuildCategory
@@ -132,6 +139,11 @@ async function sendLog(guild, embed) {
   if (logChannel) {
     await logChannel.send({ embeds: [embed] });
   }
+}
+
+// Helper para deletar confirmação após 5s
+async function deleteAfter(channel, msg, ms = 5000) {
+  setTimeout(() => msg.delete().catch(() => {}), ms);
 }
 
 // ============================================
@@ -159,7 +171,6 @@ async function createTicketPanel(interaction) {
     })
     .setTimestamp();
 
-  // Criar select menu com as opções
   const selectOptions = CONFIG.ticketTypes.map((type) =>
     new StringSelectMenuOptionBuilder()
       .setLabel(type.name)
@@ -175,7 +186,6 @@ async function createTicketPanel(interaction) {
       .addOptions(selectOptions)
   );
 
-  // Botão para ver tickets existentes (staff)
   const staffRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('ticket_panel_refresh')
@@ -245,7 +255,6 @@ async function createTicket(interaction, ticketType) {
 
   if (!type) return;
 
-  // Verificar se usuário já tem ticket aberto
   const existingTicket = Array.from(ticketData.values()).find(
     (t) => t.userId === user.id && t.status === 'open'
   );
@@ -258,7 +267,6 @@ async function createTicket(interaction, ticketType) {
     });
   }
 
-  // Criar modal para descrição
   const modal = new ModalBuilder()
     .setCustomId(`ticket_desc_${ticketType}`)
     .setTitle(`${type.emoji} ${type.name}`);
@@ -294,129 +302,120 @@ async function handleTicketModal(interaction) {
     const user = interaction.user;
     const ticketId = generateTicketId();
 
-  // Obter ou criar categoria de tickets
-  let category = guild.channels.cache.get(CONFIG.CATEGORY_ID);
-  if (!category) {
-    category = await getOrCreateCategory(guild, '🎫・tickets');
-  }
+    let category = guild.channels.cache.get(CONFIG.CATEGORY_ID);
+    if (!category) {
+      category = await getOrCreateCategory(guild, '🎫・tickets');
+    }
 
-  // Criar cargo do ticket (para dar acesso ao usuário)
-  const ticketRole = await guild.roles.create({
-    name: `🎫 │ ${user.username}`,
-    color: ticketType.color,
-    mentionable: false,
-    reason: `Ticket ${ticketId} - ${user.tag}`,
-  });
+    const ticketRole = await guild.roles.create({
+      name: `🎫 │ ${user.username}`,
+      color: ticketType.color,
+      mentionable: false,
+      reason: `Ticket ${ticketId} - ${user.tag}`,
+    });
 
-  // Criar canal do ticket
-  const ticketChannel = await guild.channels.create({
-    name: `${ticketType.id}-${user.username}`,
-    type: ChannelType.GuildText,
-    parent: category,
-    topic: `Ticket ${ticketId} | Usuário: ${user.tag} (${user.id}) | Tipo: ${ticketType.name}`,
-    permissionOverwrites: [
-      {
-        id: guild.id,
-        deny: [PermissionFlagsBits.ViewChannel],
-      },
-      {
-        id: ticketRole.id,
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.ReadMessageHistory,
-          PermissionFlagsBits.SendMessages,
-          PermissionFlagsBits.AttachFiles,
-        ],
-      },
-      {
-        id: CONFIG.STAFF_ROLE_ID,
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.ReadMessageHistory,
-          PermissionFlagsBits.SendMessages,
-          PermissionFlagsBits.ManageChannels,
-        ],
-      },
-      ...(CONFIG.TICKET_SUPPORTER_ROLE_ID ? [{
-        id: CONFIG.TICKET_SUPPORTER_ROLE_ID,
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.ReadMessageHistory,
-          PermissionFlagsBits.SendMessages,
-        ],
-      }] : []),
-    ],
-  });
+    const ticketChannel = await guild.channels.create({
+      name: `${ticketType.id}-${user.username}`,
+      type: ChannelType.GuildText,
+      parent: category,
+      topic: `Ticket ${ticketId} | Usuário: ${user.tag} (${user.id}) | Tipo: ${ticketType.name}`,
+      permissionOverwrites: [
+        {
+          id: guild.id,
+          deny: [PermissionFlagsBits.ViewChannel],
+        },
+        {
+          id: ticketRole.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.AttachFiles,
+          ],
+        },
+        {
+          id: CONFIG.STAFF_ROLE_ID,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ManageChannels,
+          ],
+        },
+        ...(CONFIG.TICKET_SUPPORTER_ROLE_ID ? [{
+          id: CONFIG.TICKET_SUPPORTER_ROLE_ID,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.SendMessages,
+          ],
+        }] : []),
+      ],
+    });
 
-  // Guardar dados do ticket
-  const ticketInfo = {
-    id: ticketId,
-    userId: user.id,
-    userTag: user.tag,
-    channelId: ticketChannel.id,
-    roleId: ticketRole.id,
-    type: ticketType.id,
-    typeName: ticketType.name,
-    description,
-    status: 'open',
-    createdAt: new Date(),
-    claimedBy: null,
-  };
+    const ticketInfo = {
+      id: ticketId,
+      userId: user.id,
+      userTag: user.tag,
+      channelId: ticketChannel.id,
+      roleId: ticketRole.id,
+      type: ticketType.id,
+      typeName: ticketType.name,
+      description,
+      status: 'open',
+      createdAt: new Date(),
+      claimedBy: null,
+    };
 
-  ticketData.set(ticketId, ticketInfo);
+    ticketData.set(ticketId, ticketInfo);
 
-  // Mensagem inicial do ticket
-  const ticketEmbed = new EmbedBuilder()
-    .setColor(ticketType.color)
-    .setTitle(`${ticketType.emoji} Ticket #${ticketId}`)
-    .setDescription(
-      `**Tipo:** ${ticketType.name}\n` +
-      `**Usuário:** ${user}\n` +
-      `**Criado em:** <t:${Math.floor(Date.now() / 1000)}:F>\n\n` +
-      `📝 **Descrição:**\n${description}`
-    )
-    .setFooter({ text: `ID: ${ticketId}` })
-    .setTimestamp();
+    const ticketEmbed = new EmbedBuilder()
+      .setColor(ticketType.color)
+      .setTitle(`${ticketType.emoji} Ticket #${ticketId}`)
+      .setDescription(
+        `**Tipo:** ${ticketType.name}\n` +
+        `**Usuário:** ${user}\n` +
+        `**Criado em:** <t:${Math.floor(Date.now() / 1000)}:F>\n\n` +
+        `📝 **Descrição:**\n${description}`
+      )
+      .setFooter({ text: `ID: ${ticketId}` })
+      .setTimestamp();
 
-  // Botões de ação
-  const actionRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`ticket_claim_${ticketId}`)
-      .setLabel('📌 Claim')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId(`ticket_close_${ticketId}`)
-      .setLabel('🔒 Fechar')
-      .setStyle(ButtonStyle.Danger),
-  );
+    const actionRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`ticket_claim_${ticketId}`)
+        .setLabel('📌 Claim')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`ticket_close_${ticketId}`)
+        .setLabel('🔒 Fechar')
+        .setStyle(ButtonStyle.Danger),
+    );
 
-  // Notificar no canal
-  const notifyMsg = await ticketChannel.send({
-    content: `${user} ${guild.roles.cache.get(CONFIG.STAFF_ROLE_ID)}`,
-    embeds: [ticketEmbed],
-    components: [actionRow],
-  });
+    const notifyMsg = await ticketChannel.send({
+      content: `${user} ${guild.roles.cache.get(CONFIG.STAFF_ROLE_ID)}`,
+      embeds: [ticketEmbed],
+      components: [actionRow],
+    });
 
-  await notifyMsg.pin();
+    await notifyMsg.pin();
 
-  // Log
-  const logEmbed = new EmbedBuilder()
-    .setColor(CONFIG.colors.success)
-    .setTitle('🎫 Ticket Criado')
-    .setFields(
-      { name: 'Ticket ID', value: ticketId, inline: true },
-      { name: 'Tipo', value: ticketType.name, inline: true },
-      { name: 'Usuário', value: user.toString(), inline: true },
-      { name: 'Canal', value: ticketChannel.toString(), inline: true }
-    )
-    .setTimestamp();
+    const logEmbed = new EmbedBuilder()
+      .setColor(CONFIG.colors.success)
+      .setTitle('🎫 Ticket Criado')
+      .setFields(
+        { name: 'Ticket ID', value: ticketId, inline: true },
+        { name: 'Tipo', value: ticketType.name, inline: true },
+        { name: 'Usuário', value: user.toString(), inline: true },
+        { name: 'Canal', value: ticketChannel.toString(), inline: true }
+      )
+      .setTimestamp();
 
-  await sendLog(guild, logEmbed);
+    await sendLog(guild, logEmbed);
 
-  // Resposta ao usuário
-  await interaction.editReply({
-    content: `✅ Seu ticket foi criado! Acesse aqui: ${ticketChannel.toString()}`,
-  });
+    await interaction.editReply({
+      content: `✅ Seu ticket foi criado! Acesse aqui: ${ticketChannel.toString()}`,
+    });
 
   } catch (error) {
     console.error('❌ Erro ao criar ticket:', error);
@@ -473,7 +472,6 @@ async function claimTicket(interaction, ticketId) {
     ephemeral: true,
   });
 
-  // Log
   const logEmbed = new EmbedBuilder()
     .setColor(CONFIG.colors.warning)
     .setTitle('📌 Ticket Reclamado')
@@ -495,7 +493,6 @@ async function closeTicket(interaction, ticketId) {
     });
   }
 
-  // Coletar mensagens para transcrição
   const channel = interaction.guild.channels.cache.get(ticket.channelId);
   let transcript = [];
 
@@ -514,7 +511,6 @@ async function closeTicket(interaction, ticketId) {
       .join('\n');
   }
 
-  // Atualizar status
   ticket.status = 'closed';
   ticket.closedBy = {
     id: interaction.user.id,
@@ -524,9 +520,7 @@ async function closeTicket(interaction, ticketId) {
   ticket.transcript = transcript;
   ticketData.set(ticketId, ticket);
 
-  // Deletar cargo e canal
   if (channel) {
-    // Enviar transcrição antes de deletar
     const transcriptChannel = interaction.guild.channels.cache.get(CONFIG.LOG_CHANNEL);
     if (transcriptChannel && transcript) {
       const transcriptEmbed = new EmbedBuilder()
@@ -547,7 +541,6 @@ async function closeTicket(interaction, ticketId) {
     await channel.delete(`Ticket ${ticketId} fechado por ${interaction.user.tag}`);
   }
 
-  // Deletar cargo do ticket
   const ticketRole = interaction.guild.roles.cache.get(ticket.roleId);
   if (ticketRole) {
     await ticketRole.delete('Ticket fechado - limpando cargo temporário');
@@ -558,14 +551,13 @@ async function closeTicket(interaction, ticketId) {
     ephemeral: true,
   });
 
-  // Log
   const logEmbed = new EmbedBuilder()
     .setColor(CONFIG.colors.danger)
     .setTitle('🔒 Ticket Fechado')
     .setFields(
       { name: 'Ticket ID', value: ticketId, inline: true },
       { name: 'Usuário', value: ticket.userTag, inline: true },
-      { name: 'Fechado por', value: interaction.user.tag, inline: true }
+      { name: 'Fechado por', value: interaction.user.toString(), inline: true }
     )
     .setTimestamp();
 
@@ -578,37 +570,31 @@ async function closeTicket(interaction, ticketId) {
 
 client.on('interactionCreate', async (interaction) => {
   try {
-    // Select Menu (criação de ticket)
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_create') {
       await createTicket(interaction, interaction.values[0]);
       return;
     }
 
-    // Modal (descrição do ticket)
     if (interaction.isModalSubmit() && interaction.customId.startsWith('ticket_desc_')) {
       await handleTicketModal(interaction);
       return;
     }
 
-    // Botões
     if (interaction.isButton()) {
       const customId = interaction.customId;
 
-      // Claim
       if (customId.startsWith('ticket_claim_')) {
         const ticketId = customId.replace('ticket_claim_', '');
         await claimTicket(interaction, ticketId);
         return;
       }
 
-      // Fechar
       if (customId.startsWith('ticket_close_')) {
         const ticketId = customId.replace('ticket_close_', '');
         await closeTicket(interaction, ticketId);
         return;
       }
 
-      // Painel
       if (customId === 'ticket_panel_refresh') {
         await createTicketPanel(interaction);
         return;
@@ -634,14 +620,12 @@ client.on('interactionCreate', async (interaction) => {
 // COMANDOS DE SLASH
 // ============================================
 
-client.on('guildIntegrationsUpdate', async () => {});
-
-// Registry de comandos (alternativa ao deploy-commands)
 client.once('ready', async () => {
   console.log(`
   ╔═══════════════════════════════════════════╗
   ║                                           ║
   ║   🎫 VINDRA CODE - SISTEMA DE TICKETS     ║
+  ║   ✨ Comandos de Embed disponíveis       ║
   ║                                           ║
   ║   Bot conectado e pronto!                 ║
   ║   Servidor: ${client.guilds.cache.first()?.name || 'N/A'}
@@ -649,7 +633,6 @@ client.once('ready', async () => {
   ╚═══════════════════════════════════════════╝
   `);
 
-  // Registrar comandos de slash
   const commands = [
     {
       name: 'ticket-panel',
@@ -665,6 +648,46 @@ client.once('ready', async () => {
       name: 'ticket-info',
       description: 'Mostra informações do ticket atual',
     },
+    {
+      name: 'anuncio',
+      description: 'Envia um anúncio estilizado',
+      options: [
+        {
+          name: 'titulo',
+          type: 3, // STRING
+          description: 'Título do anúncio',
+          required: true,
+        },
+        {
+          name: 'descricao',
+          type: 3,
+          description: 'Descrição do anúncio',
+          required: true,
+        },
+      ],
+    },
+    {
+      name: 'vagas',
+      description: 'Anuncia uma vaga de emprego',
+      options: [
+        {
+          name: 'titulo',
+          type: 3,
+          description: 'Título da vaga',
+          required: true,
+        },
+        {
+          name: 'descricao',
+          type: 3,
+          description: 'Descrição da vaga',
+          required: true,
+        },
+      ],
+    },
+    {
+      name: 'helpembed',
+      description: 'Mostra todos os comandos de embed disponíveis',
+    },
   ];
 
   try {
@@ -676,104 +699,8 @@ client.once('ready', async () => {
 });
 
 // ============================================
-// COMANDOS DE MENSAGEM (texto normal)
-// ============================================
-
-client.on('messageCreate', async (message) => {
-  // Ignorar bots e mensagens sem prefixo
-  if (message.author.bot) return;
-  if (!message.content.startsWith('!')) return;
-
-  const args = message.content.slice(1).split(/ +/);
-  const command = args.shift().toLowerCase();
-
-  // !painel - Cria o painel de tickets (comando alternativo)
-  if (command === 'painel' || command === 'ticket-panel') {
-    if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return message.reply('❌ Apenas administradores podem usar este comando.');
-    }
-    try {
-      await message.delete();
-    } catch (e) {}
-    await createTicketPanelMessage(message.channel, message.guild);
-  }
-
-  // !fechar - Fecha o ticket atual
-  if (command === 'fechar' || command === 'ticket-close') {
-    const ticket = Array.from(ticketData.values()).find(
-      (t) => t.channelId === message.channel.id
-    );
-
-    if (!ticket) {
-      return message.reply('❌ Este canal não é um ticket.');
-    }
-
-    await message.reply('🔒 Fechando ticket...');
-    await closeTicket(message, ticket.id);
-  }
-
-  // !ticket-info - Mostra info do ticket
-  if (command === 'info' || command === 'ticket-info') {
-    const ticket = Array.from(ticketData.values()).find(
-      (t) => t.channelId === message.channel.id
-    );
-
-    if (!ticket) {
-      return message.reply('❌ Este canal não é um ticket.');
-    }
-
-    const infoEmbed = new EmbedBuilder()
-      .setColor(CONFIG.colors.primary)
-      .setTitle(`📋 Ticket #${ticket.id}`)
-      .addFields(
-        { name: 'Tipo', value: ticket.typeName, inline: true },
-        { name: 'Status', value: ticket.status === 'open' ? '🟢 Aberto' : '🔴 Fechado', inline: true },
-        { name: 'Usuário', value: `<@${ticket.userId}>`, inline: true },
-        { name: 'Atendente', value: ticket.claimedBy ? `<@${ticket.claimedBy.id}>` : 'Nenhum', inline: true },
-        { name: 'Criado em', value: `<t:${Math.floor(ticket.createdAt.getTime() / 1000)}:F>`, inline: true }
-      )
-      .setDescription(`📝 **Descrição:**\n${ticket.description}`);
-
-    await message.reply({ embeds: [infoEmbed] });
-  }
-
-  // ===== Comandos de embed (apenas staff) =====
-  if (
-    command === 'anuncio' ||
-    command === 'regras' ||
-    command === 'vagas' ||
-    command === 'parceria' ||
-    command === 'boasvindas' ||
-    command === 'helpembed'
-  ) {
-    if (!isStaff(message.member)) {
-      return message.reply('❌ Apenas a staff pode usar comandos de embed.');
-    }
-
-    if (command === 'anuncio') return handleAnuncio(message, args);
-    if (command === 'regras') return handleRegras(message);
-    if (command === 'vagas') return handleVagas(message, args);
-    if (command === 'parceria') return handleParceria(message, args);
-    if (command === 'boasvindas') return handleBoasVindas(message, args);
-    if (command === 'helpembed') return handleHelpEmbed(message);
-  }
-});
-
-// ============================================
 // COMANDOS DE EMBED (mensagens estilizadas)
 // ============================================
-
-// Verifica se usuário é staff
-function isStaff(member) {
-  if (!member) return false;
-  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  if (CONFIG.STAFF_ROLE_ID && member.roles.cache.has(CONFIG.STAFF_ROLE_ID)) return true;
-  return false;
-}
-
-// Banner/imagem padrão (troque pelo link do banner da Vindra)
-const VINDRA_BANNER = 'https://i.imgur.com/placeholder.png';
-const VINDRA_LOGO = 'https://i.imgur.com/placeholder.png';
 
 // !anuncio <titulo> | <descrição> | [cor] | [imagem]
 async function handleAnuncio(message, args) {
@@ -802,19 +729,18 @@ async function handleAnuncio(message, args) {
     await message.delete();
   } catch (e) {}
 
-  await message.channel.send({ embeds: [embed] });
+  const sent = await message.channel.send({ embeds: [embed] });
   const confirm = await message.channel.send('✅ Anúncio enviado!');
-  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+  deleteAfter(message.channel, confirm);
+  return sent;
 }
 
-// !regras - Envia embed de regras (canal #regras)
+// !regras - Envia embed de regras
 async function handleRegras(message) {
   const embed = new EmbedBuilder()
     .setColor(CONFIG.colors.primary)
     .setTitle('📜 Regras da Vindra Code')
-    .setDescription(
-      'Para manter a comunidade saudável, siga estas regras:'
-    )
+    .setDescription('Para manter a comunidade saudável, siga estas regras:')
     .addFields(
       {
         name: '✅ Comportamento',
@@ -841,8 +767,7 @@ async function handleRegras(message) {
       },
       {
         name: '⚠️ Punições',
-        value:
-          'O descumprimento das regras resulta em advertência, mute ou ban, dependendo da gravidade.',
+        value: 'O descumprimento das regras resulta em advertência, mute ou ban, dependendo da gravidade.',
         inline: false,
       }
     )
@@ -853,9 +778,10 @@ async function handleRegras(message) {
     await message.delete();
   } catch (e) {}
 
-  await message.channel.send({ embeds: [embed] });
+  const sent = await message.channel.send({ embeds: [embed] });
   const confirm = await message.channel.send('✅ Regras enviadas!');
-  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+  deleteAfter(message.channel, confirm);
+  return sent;
 }
 
 // !vagas <titulo> | <descrição> | [link]
@@ -887,9 +813,10 @@ async function handleVagas(message, args) {
     await message.delete();
   } catch (e) {}
 
-  await message.channel.send({ embeds: [embed] });
+  const sent = await message.channel.send({ embeds: [embed] });
   const confirm = await message.channel.send('✅ Vaga anunciada!');
-  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+  deleteAfter(message.channel, confirm);
+  return sent;
 }
 
 // !parceria <nome> | <descrição> | [link]
@@ -898,9 +825,7 @@ async function handleParceria(message, args) {
   const parts = joined.split('|').map((s) => s.trim());
 
   if (parts.length < 2) {
-    return message.reply(
-      '❌ **Uso:** `!parceria <nome> | <descrição> | [link]`'
-    );
+    return message.reply('❌ **Uso:** `!parceria <nome> | <descrição> | [link]`');
   }
 
   const [title, description, link] = parts;
@@ -920,9 +845,10 @@ async function handleParceria(message, args) {
     await message.delete();
   } catch (e) {}
 
-  await message.channel.send({ embeds: [embed] });
+  const sent = await message.channel.send({ embeds: [embed] });
   const confirm = await message.channel.send('✅ Parceria anunciada!');
-  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+  deleteAfter(message.channel, confirm);
+  return sent;
 }
 
 // !boasvindas @user [mensagem]
@@ -950,9 +876,10 @@ async function handleBoasVindas(message, args) {
     await message.delete();
   } catch (e) {}
 
-  await message.channel.send({ content: `${user}`, embeds: [embed] });
+  const sent = await message.channel.send({ content: `${user}`, embeds: [embed] });
   const confirm = await message.channel.send('✅ Boas-vindas enviada!');
-  setTimeout(() => confirm.delete().catch(() => {}), 5000);
+  deleteAfter(message.channel, confirm);
+  return sent;
 }
 
 // !helpembed - Lista os comandos de embed
@@ -990,8 +917,95 @@ async function handleHelpEmbed(message) {
     .setFooter({ text: 'Vindra Code • Apenas staff pode usar estes comandos' })
     .setTimestamp();
 
-  await message.reply({ embeds: [embed] });
+  return message.reply({ embeds: [embed] });
 }
+
+// ============================================
+// COMANDOS DE MENSAGEM (texto normal)
+// ============================================
+
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+  if (!message.content.startsWith('!')) return;
+
+  const args = message.content.slice(1).split(/ +/);
+  const command = args.shift().toLowerCase();
+
+  // !painel - Cria o painel de tickets
+  if (command === 'painel' || command === 'ticket-panel') {
+    if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return message.reply('❌ Apenas administradores podem usar este comando.');
+    }
+    try {
+      await message.delete();
+    } catch (e) {}
+    await createTicketPanelMessage(message.channel, message.guild);
+    return;
+  }
+
+  // !fechar - Fecha o ticket atual
+  if (command === 'fechar' || command === 'ticket-close') {
+    const ticket = Array.from(ticketData.values()).find(
+      (t) => t.channelId === message.channel.id
+    );
+
+    if (!ticket) {
+      return message.reply('❌ Este canal não é um ticket.');
+    }
+
+    await message.reply('🔒 Fechando ticket...');
+    await closeTicket(message, ticket.id);
+    return;
+  }
+
+  // !info - Mostra info do ticket
+  if (command === 'info' || command === 'ticket-info') {
+    const ticket = Array.from(ticketData.values()).find(
+      (t) => t.channelId === message.channel.id
+    );
+
+    if (!ticket) {
+      return message.reply('❌ Este canal não é um ticket.');
+    }
+
+    const infoEmbed = new EmbedBuilder()
+      .setColor(CONFIG.colors.primary)
+      .setTitle(`📋 Ticket #${ticket.id}`)
+      .addFields(
+        { name: 'Tipo', value: ticket.typeName, inline: true },
+        { name: 'Status', value: ticket.status === 'open' ? '🟢 Aberto' : '🔴 Fechado', inline: true },
+        { name: 'Usuário', value: `<@${ticket.userId}>`, inline: true },
+        { name: 'Atendente', value: ticket.claimedBy ? `<@${ticket.claimedBy.id}>` : 'Nenhum', inline: true },
+        { name: 'Criado em', value: `<t:${Math.floor(ticket.createdAt.getTime() / 1000)}:F>`, inline: true }
+      )
+      .setDescription(`📝 **Descrição:**\n${ticket.description}`);
+
+    await message.reply({ embeds: [infoEmbed] });
+    return;
+  }
+
+  // ===== Comandos de embed (apenas staff) =====
+  const embedCommands = ['anuncio', 'regras', 'vagas', 'parceria', 'boasvindas', 'helpembed'];
+  if (embedCommands.includes(command)) {
+    if (!isStaff(message.member)) {
+      return message.reply('❌ Apenas a staff pode usar comandos de embed.');
+    }
+
+    try {
+      if (command === 'anuncio') await handleAnuncio(message, args);
+      else if (command === 'regras') await handleRegras(message);
+      else if (command === 'vagas') await handleVagas(message, args);
+      else if (command === 'parceria') await handleParceria(message, args);
+      else if (command === 'boasvindas') await handleBoasVindas(message, args);
+      else if (command === 'helpembed') await handleHelpEmbed(message);
+    } catch (error) {
+      console.error(`❌ Erro no comando !${command}:`, error);
+      try {
+        await message.reply(`❌ Erro ao executar comando: ${error.message}`);
+      } catch (e) {}
+    }
+  }
+});
 
 // ============================================
 // LOGIN
