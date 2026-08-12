@@ -17,6 +17,9 @@ Sistema completo de tickets para Discord, com painel interativo, múltiplas cate
 - **📊 Logs** - Canal dedicado para auditoria
 - **🔐 Segurança** - Cada ticket tem cargo único
 - **⚡ Modo Moderno** - Usa botões, modals e selects (discord.js v14)
+- **🎉 Boas-vindas Automáticas** - Mensagem automática para novos membros
+- **🖼️ Portfolio** - Card de projetos com imagem e botão de link
+- **📋 Sistema de Leads** - Prospectors registram leads com canal privado
 
 ## 🚀 Instalação
 
@@ -123,6 +126,7 @@ npm start
 - `!parceria <nome> | <descrição> | [link]`
 - `!boasvindas @user [mensagem]`
 - `!portfolio <titulo> | <descrição> | <url imagem> | <url site>` — card de projeto com imagem e botão
+- `!painel-leads` — cria painel de registro de leads
 
 **Dentro do Ticket:**
 - **📌 Claim** - Reivindicar o ticket para atendimento
@@ -190,6 +194,22 @@ vindra-tickets/
 - Apenas o autor e staff podem ver o ticket
 - Transcrições são salvas antes de fechar
 - Logs de todas as ações
+- Canais de leads são privados por usuário
+
+## 📋 Sistema de Leads
+
+O sistema de leads permite que membros com cargo 🔎 Prospector registrem potenciais clientes.
+
+**Como usar:**
+1. Um admin executa `!painel-leads` no canal desejado
+2. Prospectors clicam em "📝 Registrar Lead"
+3. Preenchem: Nome, Email, Telefone, Observação
+4. O lead aparece no canal público e no canal privado do prospector (`meus-leads-USERID`)
+
+**Configuração:**
+- `PROSPECTOR_ROLE_ID` — Cargo que pode registrar leads
+- `LEAD_LOG_CHANNEL` — Canal para logs de leads (opcional)
+- Crie uma categoria chamada "lead" para organizar os canais privados
 
 ## ❓ FAQ
 

@@ -1259,12 +1259,77 @@ async function handleEmbedModal(interaction) {
       }
     }
 
+    // Envia para o canal privado do prospector (meus-leads)
+    await sendToPrivateLeadsChannel(interaction, leadEmbed);
+
     return interaction.editReply({ content: '✅ Lead registrado com sucesso!' });
   }
 
   if (!embed) return interaction.editReply('❌ Tipo desconhecido.');
 
   await sendPreview(interaction, embed, pingEveryone, customPing);
+}
+
+// Envia lead para o canal privado do prospector
+async function sendToPrivateLeadsChannel(interaction, leadEmbed) {
+  const guild = interaction.guild;
+  const userId = interaction.user.id;
+  const channelName = `meus-leads-${userId}`;
+
+  // Procura se já existe canal privado desse usuário
+  let privateChannel = guild.channels.cache.find(
+    (ch) => ch.name === channelName && ch.type === ChannelType.GuildText
+  );
+
+  // Se não existe, cria o canal privado
+  if (!privateChannel) {
+    try {
+      // Procura a categoria de leads ou usa a categoria principal
+      let category = guild.channels.cache.find(
+        (ch) => ch.type === ChannelType.GuildCategory && ch.name.toLowerCase().includes('lead')
+      );
+
+      privateChannel = await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        parent: category?.id,
+        permissionOverwrites: [
+          {
+            id: guild.roles.everyone,
+            deny: [PermissionFlagsBits.ViewChannel],
+          },
+          {
+            id: userId,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+          },
+          {
+            id: process.env.STAFF_ROLE_ID,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+          },
+        ],
+      });
+
+      // Envia mensagem de boas-vindas no canal privado
+      const welcomeMsg = new EmbedBuilder()
+        .setColor(CONFIG.colors.primary)
+        .setTitle('📋 Seus Leads - Vindra Code')
+        .setDescription(
+          `Bem-vindo ao seu painel de leads, ${interaction.user}!\n\n` +
+          `Aqui aparecerão todos os leads que você registrar.\n` +
+          `Clique em "📝 Registrar Lead" no canal público para cadastrar novos leads.`
+        )
+        .setFooter({ text: 'Vindra Code • Sistema de Leads' })
+        .setTimestamp();
+
+      await privateChannel.send({ embeds: [welcomeMsg] });
+    } catch (error) {
+      console.error('❌ Erro ao criar canal privado de leads:', error.message);
+      return;
+    }
+  }
+
+  // Envia o lead no canal privado
+  await privateChannel.send({ embeds: [leadEmbed] });
 }
 
 // Envia embed pronto de regras (sem preview, manda direto)
