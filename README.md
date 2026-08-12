@@ -122,6 +122,7 @@ npm start
 - `!vagas <titulo> | <descrição> | [link]`
 - `!parceria <nome> | <descrição> | [link]`
 - `!boasvindas @user [mensagem]`
+- `!portfolio <titulo> | <descrição> | <url imagem> | <url site>` — card de projeto com imagem e botão
 
 **Dentro do Ticket:**
 - **📌 Claim** - Reivindicar o ticket para atendimento

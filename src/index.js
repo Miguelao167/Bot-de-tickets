@@ -1237,11 +1237,68 @@ client.on('messageCreate', async (message) => {
           .addFields(
             { name: '🎫 Tickets', value: '`!painel` `!fechar` `!info`' },
             { name: '📨 Mensagens', value: '`!painel-embeds` (abre painel com botões)' },
+            { name: '💼 Portfolio', value: '`!portfolio` (cria card de projeto)' },
             { name: '❓ Ajuda', value: '`!help`' }
           )
           .setFooter({ text: 'Vindra Code • Apenas staff usa os comandos de embed' }),
       ],
     });
+    return;
+  }
+
+  // !portfolio - Cria card de projeto com imagem e botão de link
+  if (command === 'portfolio' || command === 'projeto') {
+    if (!isStaff(message.member)) return message.reply('❌ Apenas staff pode usar este comando.');
+
+    // Formato: !portfolio <titulo> | <descricao> | <url da imagem> | <url do site>
+    const fullText = args.join(' ');
+    const parts = fullText.split('|').map(p => p.trim());
+
+    if (parts.length < 3) {
+      return message.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(CONFIG.colors.warning)
+            .setTitle('💼 Criar Card de Portfolio')
+            .setDescription('**Como usar:**\n```\n!portfolio <titulo> | <descricao> | <url da imagem> | <url do site>\n```\n\n**Exemplo:**\n```\n!portfolio Meu Site | Um site incrível que fiz | https://i.imgur.com/foto.png | https://meusite.com\n```')
+            .addFields(
+              { name: '📌 Passo a passo:', value: '1. Cole a URL da imagem (termina em .png, .jpg, etc)\n2. Cole a URL do site\n3. Separe tudo com `|` (pipe)' }
+            )
+        ]
+      });
+    }
+
+    const [title, description, imageUrl, siteUrl] = parts;
+
+    if (!imageUrl.startsWith('http')) {
+      return message.reply('❌ A URL da imagem precisa começar com http:// ou https://');
+    }
+    if (!siteUrl.startsWith('http')) {
+      return message.reply('❌ A URL do site precisa começar com http:// ou https://');
+    }
+
+    const portfolioEmbed = new EmbedBuilder()
+      .setColor(CONFIG.colors.primary)
+      .setTitle(`💼 ${title}`)
+      .setDescription(description)
+      .setImage(imageUrl)
+      .setFooter({ text: 'Vindra Code • Portfolio' })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel('🚀 Ir para o Site')
+        .setStyle(ButtonStyle.Link)
+        .setURL(siteUrl)
+    );
+
+    await message.channel.send({
+      content: '💼 **Novo Projeto no Portfolio!**',
+      embeds: [portfolioEmbed],
+      components: [row]
+    });
+
+    await message.reply('✅ Card de portfolio enviado!');
     return;
   }
 });
