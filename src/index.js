@@ -33,6 +33,8 @@ const CONFIG = {
   STAFF_ROLE_ID: process.env.STAFF_ROLE_ID,
   TICKET_SUPPORTER_ROLE_ID: process.env.TICKET_SUPPORTER_ROLE_ID,
   WELCOME_CHANNEL: process.env.WELCOME_CHANNEL,
+  PROSPECTOR_ROLE_ID: process.env.PROSPECTOR_ROLE_ID,
+  LEAD_LOG_CHANNEL: process.env.LEAD_LOG_CHANNEL,
 
   colors: {
     primary: 0x6C5CE7,
@@ -538,6 +540,85 @@ async function createEmbedPanel(channel, guild) {
   await channel.send({ embeds: [embed], components: [row1, row2, row3] });
 }
 
+// ============================================
+// PAINEL DE REGISTRO DE LEADS
+// ============================================
+
+async function createLeadsPanel(channel) {
+  const embed = new EmbedBuilder()
+    .setColor(CONFIG.colors.primary)
+    .setTitle('📋 Painel de Leads - Vindra Code')
+    .setDescription(
+      'Bem-vindo ao sistema de registro de leads!\n\n' +
+      'Clique no botão abaixo para cadastrar um novo lead.\n' +
+      'Cada registro será salvo com seu nome como responsável.\n\n' +
+      '**⚠️ Apenas membros com cargo 🔎 Prospector podem registrar.**'
+    )
+    .addFields(
+      { name: '📌 Como funciona:', value: '1. Clique em "Registrar Lead"\n2. Preencha os dados do lead\n3. O lead será registrado e logado' }
+    )
+    .setFooter({ text: 'Vindra Code • Sistema de Leads' })
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('lead_register')
+      .setLabel('📝 Registrar Lead')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('📝')
+  );
+
+  await channel.send({ embeds: [embed], components: [row] });
+}
+
+// Modal de registro de LEAD
+function buildLeadModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('modal_lead')
+    .setTitle('📋 Registrar Novo Lead');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('lead_nome')
+        .setLabel('Nome do Lead')
+        .setPlaceholder('Nome completo ou empresa')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(100)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('lead_email')
+        .setLabel('Email')
+        .setPlaceholder('email@exemplo.com')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(200)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('lead_telefone')
+        .setLabel('Telefone/WhatsApp')
+        .setPlaceholder('(11) 99999-9999')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(30)
+        .setRequired(false)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('lead_observacao')
+        .setLabel('Observação')
+        .setPlaceholder('Como conheceu? Interesse? Nota adicional...')
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(500)
+        .setRequired(false)
+    ),
+  );
+
+  return modal;
+}
+
 // Abre modal para ANÚNCIO
 function buildAnuncioModal() {
   const modal = new ModalBuilder()
@@ -972,6 +1053,16 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      // Botão de registro de lead
+      if (customId === 'lead_register') {
+        const hasProspectorRole = interaction.member.roles.cache.has(process.env.PROSPECTOR_ROLE_ID);
+        if (!hasProspectorRole && !isStaff(interaction.member)) {
+          return interaction.reply({ content: '❌ Apenas membros com cargo 🔎 Prospector podem registrar leads.', ephemeral: true });
+        }
+        await interaction.showModal(buildLeadModal());
+        return;
+      }
+
       // Botões de preview (postar/cancelar)
       if (customId.startsWith('preview_post_')) {
         await handlePreviewPost(interaction);
@@ -1136,6 +1227,41 @@ async function handleEmbedModal(interaction) {
     return interaction.editReply({ content: '✅ Card de portfolio enviado!' });
   }
 
+  // Registro de LEAD
+  else if (type === 'lead') {
+    const nome = get('lead_nome');
+    const email = get('lead_email');
+    const telefone = get('lead_telefone');
+    const observacao = get('lead_observacao');
+
+    const leadEmbed = new EmbedBuilder()
+      .setColor(CONFIG.colors.success)
+      .setTitle('📋 Novo Lead Registrado!')
+      .addFields(
+        { name: '👤 Nome', value: nome, inline: true },
+        { name: '📧 Email', value: email, inline: true },
+        { name: '📱 Telefone', value: telefone || 'Não informado', inline: true },
+        { name: '📝 Observação', value: observacao || 'Sem observações', inline: false },
+        { name: '👨‍💻 Prospector', value: interaction.user.tag, inline: true },
+        { name: '🕐 Data', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+      )
+      .setFooter({ text: 'Vindra Code • Sistema de Leads' })
+      .setTimestamp();
+
+    // Envia no canal onde foi registrado
+    await interaction.channel.send({ embeds: [leadEmbed] });
+
+    // Também envia no canal de logs de leads se configurado
+    if (process.env.LEAD_LOG_CHANNEL) {
+      const logChannel = interaction.guild.channels.cache.get(process.env.LEAD_LOG_CHANNEL);
+      if (logChannel) {
+        await logChannel.send({ embeds: [leadEmbed] });
+      }
+    }
+
+    return interaction.editReply({ content: '✅ Lead registrado com sucesso!' });
+  }
+
   if (!embed) return interaction.editReply('❌ Tipo desconhecido.');
 
   await sendPreview(interaction, embed, pingEveryone, customPing);
@@ -1243,6 +1369,7 @@ client.once('ready', async () => {
     { name: 'ticket-close', description: 'Fecha ticket atual', defaultMemberPermissions: PermissionFlagsBits.ManageChannels },
     { name: 'ticket-info', description: 'Info do ticket atual' },
     { name: 'painel-embeds', description: 'Abre painel interativo de mensagens' },
+    { name: 'painel-leads', description: 'Cria painel de registro de leads', defaultMemberPermissions: PermissionFlagsBits.Administrator },
     { name: 'help', description: 'Lista comandos do bot' },
   ];
 
@@ -1280,6 +1407,17 @@ client.on('messageCreate', async (message) => {
     if (!isStaff(message.member)) return message.reply('❌ Apenas staff.');
     try { await message.delete(); } catch (e) {}
     await createEmbedPanel(message.channel, message.guild);
+    return;
+  }
+
+  // !painel-leads - Cria painel de leads
+  if (command === 'painel-leads' || command === 'leads') {
+    if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return message.reply('❌ Apenas administradores.');
+    }
+    try { await message.delete(); } catch (e) {}
+    await createLeadsPanel(message.channel);
+    await message.reply('✅ Painel de leads criado!');
     return;
   }
 
