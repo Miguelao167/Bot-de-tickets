@@ -1063,6 +1063,12 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      // Botões de status do lead (no canal privado)
+      if (customId.startsWith('lead_status_')) {
+        await handleLeadStatus(interaction);
+        return;
+      }
+
       // Botões de preview (postar/cancelar)
       if (customId.startsWith('preview_post_')) {
         await handlePreviewPost(interaction);
@@ -1332,8 +1338,92 @@ async function sendToPrivateLeadsChannel(interaction, leadEmbed) {
     }
   }
 
-  // Envia o lead no canal privado
-  await privateChannel.send({ embeds: [leadEmbed] });
+  // Envia o lead no canal privado COM botões de status
+  const statusRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`lead_status_interested_${userId}`)
+      .setLabel('🟣 Interessado')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('🟣'),
+    new ButtonBuilder()
+      .setCustomId(`lead_status_progress_${userId}`)
+      .setLabel('🔵 Projeto em Andamento')
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji('🔵'),
+    new ButtonBuilder()
+      .setCustomId(`lead_status_closed_${userId}`)
+      .setLabel('🟢 Venda Fechada')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('🟢')
+  );
+
+  await privateChannel.send({ embeds: [leadEmbed], components: [statusRow] });
+}
+
+// Atualiza o status do lead no canal privado
+async function handleLeadStatus(interaction) {
+  // customId tem formato: lead_status_<status>_<userId>
+  // Ex: lead_status_interested_123456789
+  const parts = interaction.customId.split('_');
+  // parts = ['lead', 'status', '<status>', '<userId>']
+  const newStatus = parts[2];
+  const ownerId = parts[3];
+
+  // Só o dono do canal privado (ou staff) pode alterar o status
+  if (interaction.user.id !== ownerId && !isStaff(interaction.member)) {
+    return interaction.reply({
+      content: '❌ Você não pode alterar este lead. Ele pertence ao canal privado de outro prospector.',
+      ephemeral: true,
+    });
+  }
+
+  // Mapa de status: nome técnico -> { label, emoji, cor, novo título }
+  const statusMap = {
+    interested: {
+      label: '🟣 Interessado',
+      title: '🟣 Lead Interessado',
+      color: CONFIG.colors.info,
+    },
+    progress: {
+      label: '🔵 Projeto em Andamento',
+      title: '🔵 Projeto em Andamento',
+      color: CONFIG.colors.info,
+    },
+    closed: {
+      label: '🟢 Venda Fechada',
+      title: '🟢 Venda Fechada',
+      color: CONFIG.colors.success,
+    },
+  };
+
+  const statusInfo = statusMap[newStatus];
+  if (!statusInfo) {
+    return interaction.reply({ content: '❌ Status desconhecido.', ephemeral: true });
+  }
+
+  // Pega o embed original para atualizar (mantém os dados do lead)
+  const originalEmbed = interaction.message.embeds[0];
+  if (!originalEmbed) {
+    return interaction.reply({ content: '❌ Embed não encontrado.', ephemeral: true });
+  }
+
+  // Cria o embed novo baseado no original, trocando cor, título e rodapé
+  const updatedEmbed = EmbedBuilder.from(originalEmbed)
+    .setColor(statusInfo.color)
+    .setTitle(statusInfo.title)
+    .setFooter({
+      text: `Vindra Code • Status: ${statusInfo.label} • Atualizado por ${interaction.user.tag}`,
+    })
+    .setTimestamp();
+
+  // Mensagem de confirmação visível só pra quem clicou (ephemeral)
+  await interaction.reply({
+    content: `✅ Status atualizado para **${statusInfo.label}**`,
+    ephemeral: true,
+  });
+
+  // Edita a embed original no canal com a nova cor e remove os botões
+  await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
 }
 
 // Envia embed pronto de regras (sem preview, manda direto)
