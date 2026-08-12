@@ -492,7 +492,8 @@ async function createEmbedPanel(channel, guild) {
       '💼 **Vaga** — Divulgar oportunidade de trabalho\n' +
       '🤝 **Parceria** — Anunciar parceria com outra empresa/projeto\n' +
       '🎉 **Boas-vindas** — Dar boas-vindas a um novo membro\n' +
-      '📜 **Regras** — Enviar embed pronto de regras'
+      '📜 **Regras** — Enviar embed pronto de regras\n' +
+      '🖼️ **Portfolio** — Card de projeto com imagem e botão de link'
     )
     .setFooter({ text: 'Vindra Code • Apenas staff pode usar' })
     .setTimestamp();
@@ -521,13 +522,20 @@ async function createEmbedPanel(channel, guild) {
       .setCustomId('embed_regras')
       .setLabel('📜 Regras')
       .setStyle(ButtonStyle.Secondary),
+  );
+
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('embed_portfolio')
+      .setLabel('🖼️ Portfolio')
+      .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId('embed_personalizado')
       .setLabel('✨ Personalizado')
-      .setStyle(ButtonStyle.Primary),
+      .setStyle(ButtonStyle.Secondary),
   );
 
-  await channel.send({ embeds: [embed], components: [row1, row2] });
+  await channel.send({ embeds: [embed], components: [row1, row2, row3] });
 }
 
 // Abre modal para ANÚNCIO
@@ -740,6 +748,54 @@ function buildBoasVindasModal() {
   return modal;
 }
 
+// Modal de PORTFOLIO
+function buildPortfolioModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('modal_portfolio')
+    .setTitle('🖼️ Card de Portfolio');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('titulo')
+        .setLabel('Título do projeto')
+        .setPlaceholder('Ex: Meu Site Incrível')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(100)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('descricao')
+        .setLabel('Descrição')
+        .setPlaceholder('Descreva o projeto em poucas palavras...')
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(500)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('imagem')
+        .setLabel('URL da imagem')
+        .setPlaceholder('https://i.imgur.com/foto.png')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(500)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('site_url')
+        .setLabel('URL do site')
+        .setPlaceholder('https://meusite.com')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(500)
+        .setRequired(true)
+    ),
+  );
+
+  return modal;
+}
+
 // Modal PERSONALIZADO (controle total)
 function buildPersonalizadoModal() {
   const modal = new ModalBuilder()
@@ -900,6 +956,11 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.showModal(buildBoasVindasModal());
         return;
       }
+      if (customId === 'embed_portfolio') {
+        if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Apenas staff.', ephemeral: true });
+        await interaction.showModal(buildPortfolioModal());
+        return;
+      }
       if (customId === 'embed_personalizado') {
         if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Apenas staff.', ephemeral: true });
         await interaction.showModal(buildPersonalizadoModal());
@@ -1042,6 +1103,37 @@ async function handleEmbedModal(interaction) {
       .setTimestamp();
     if (imagem) embed.setImage(imagem);
     if (thumbnail) embed.setThumbnail(thumbnail);
+  }
+
+  else if (type === 'portfolio') {
+    const titulo = get('titulo');
+    const descricao = get('descricao');
+    const imagem = get('imagem');
+    const siteUrl = get('site_url');
+
+    // Portfolio vai direto com botão (não usa preview)
+    const portfolioEmbed = new EmbedBuilder()
+      .setColor(CONFIG.colors.primary)
+      .setTitle(`🖼️ ${titulo}`)
+      .setDescription(descricao)
+      .setImage(imagem)
+      .setFooter({ text: 'Vindra Code • Portfolio' })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel('🚀 Ir para o Site')
+        .setStyle(ButtonStyle.Link)
+        .setURL(siteUrl)
+    );
+
+    await interaction.channel.send({
+      content: '💼 **Novo Projeto no Portfolio!**',
+      embeds: [portfolioEmbed],
+      components: [row]
+    });
+
+    return interaction.editReply({ content: '✅ Card de portfolio enviado!' });
   }
 
   if (!embed) return interaction.editReply('❌ Tipo desconhecido.');
