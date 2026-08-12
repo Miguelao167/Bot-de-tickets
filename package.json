@@ -1,0 +1,16 @@
+{
+  "name": "vindra-tickets",
+  "version": "1.0.0",
+  "description": "Sistema de tickets para Vindra Code",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "npm": "^12.0.2"
+  }
+}
