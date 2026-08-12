@@ -1248,8 +1248,12 @@ async function handleEmbedModal(interaction) {
       .setFooter({ text: 'Vindra Code • Sistema de Leads' })
       .setTimestamp();
 
-    // Envia no canal onde foi registrado
-    await interaction.channel.send({ embeds: [leadEmbed] });
+    // NO canal público NÃO aparece nada (fica só no privado)
+    // Envia uma confirmação rápida no canal público (mensagem simples)
+    const confirmMsg = await interaction.channel.send({
+      content: `✅ ${interaction.user}, lead registrado no seu canal privado!`,
+    });
+    setTimeout(() => confirmMsg.delete().catch(() => {}), 5000); // Deleta depois de 5 segundos
 
     // Também envia no canal de logs de leads se configurado
     if (process.env.LEAD_LOG_CHANNEL) {
