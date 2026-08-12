@@ -94,6 +94,7 @@ function isStaff(member) {
   if (!member) return false;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
   if (CONFIG.STAFF_ROLE_ID && member.roles.cache.has(CONFIG.STAFF_ROLE_ID)) return true;
+  if (process.env.CEO_ROLE_ID && member.roles.cache.has(process.env.CEO_ROLE_ID)) return true;
   return false;
 }
 
@@ -1417,8 +1418,13 @@ async function handleLeadStatus(interaction) {
     .setTimestamp();
 
   // Mensagem de confirmação visível só pra quem clicou (ephemeral)
+  const isOwner = interaction.user.id === ownerId;
+  const confirmText = isOwner
+    ? `✅ Status atualizado para **${statusInfo.label}**`
+    : `✅ Status atualizado para **${statusInfo.label}** (alteração administrativa)`;
+
   await interaction.reply({
-    content: `✅ Status atualizado para **${statusInfo.label}**`,
+    content: confirmText,
     ephemeral: true,
   });
 
