@@ -1,6 +1,7 @@
 // ============================================
 // VINDRA CODE - SISTEMA DE TICKETS + EMBEDS
-// Bot completo com painel, categorias, logs e comandos de embed
+// Bot completo com painel de tickets, categorias, logs
+// e painel interativo de mensagens estilizadas
 // ============================================
 
 import 'dotenv/config';
@@ -25,7 +26,6 @@ import {
 // ============================================
 
 const CONFIG = {
-  // IDs (configure no .env)
   GUILD_ID: process.env.GUILD_ID,
   CATEGORY_ID: process.env.CATEGORY_ID,
   TICKET_PANEL_CHANNEL: process.env.TICKET_PANEL_CHANNEL,
@@ -33,64 +33,35 @@ const CONFIG = {
   STAFF_ROLE_ID: process.env.STAFF_ROLE_ID,
   TICKET_SUPPORTER_ROLE_ID: process.env.TICKET_SUPPORTER_ROLE_ID,
 
-  // Cores da marca
   colors: {
-    primary: 0x6C5CE7,      // Roxo Vindra
-    success: 0x00B894,     // Verde
-    danger: 0xE74C3C,      // Vermelho
-    warning: 0xFDCB6E,     // Amarelo
-    info: 0x0984E3,        // Azul
+    primary: 0x6C5CE7,
+    success: 0x00B894,
+    danger: 0xE74C3C,
+    warning: 0xFDCB6E,
+    info: 0x0984E3,
   },
 
-  // Categorias de ticket
+  // Cores pré-definidas para escolha rápida nos painéis
+  colorPresets: [
+    { id: 'primary', name: '🟣 Roxo Vindra', hex: '6C5CE7' },
+    { id: 'success', name: '🟢 Verde', hex: '00B894' },
+    { id: 'info', name: '🔵 Azul', hex: '0984E3' },
+    { id: 'warning', name: '🟡 Amarelo', hex: 'FDCB6E' },
+    { id: 'danger', name: '🔴 Vermelho', hex: 'E74C3C' },
+  ],
+
   ticketTypes: [
-    {
-      id: 'bug',
-      emoji: '🐛',
-      name: 'Reportar Bug',
-      description: 'Encontrou um bug? Nos conte os detalhes.',
-      color: 0xE74C3C,
-    },
-    {
-      id: 'sugestao',
-      emoji: '💡',
-      name: 'Sugestão',
-      description: 'Tem uma ideia para melhorar? Compartilhe!',
-      color: 0xFDCB6E,
-    },
-    {
-      id: 'duvida',
-      emoji: '❓',
-      name: 'Dúvida Técnica',
-      description: 'Precisa de ajuda com código ou projeto?',
-      color: 0x0984E3,
-    },
-    {
-      id: 'parceria',
-      emoji: '🤝',
-      name: 'Parceria',
-      description: 'Quer fazer uma parceria com a Vindra?',
-      color: 0x00B894,
-    },
-    {
-      id: 'vagas',
-      emoji: '💼',
-      name: 'Vagas',
-      description: 'Quer divulgar uma oportunidade de trabalho?',
-      color: 0x6C5CE7,
-    },
-    {
-      id: 'outro',
-      emoji: '📝',
-      name: 'Outro',
-      description: 'Algo que não se encaixa nas opções acima.',
-      color: 0x636E72,
-    },
+    { id: 'bug', emoji: '🐛', name: 'Reportar Bug', description: 'Encontrou um bug? Nos conte os detalhes.', color: 0xE74C3C },
+    { id: 'sugestao', emoji: '💡', name: 'Sugestão', description: 'Tem uma ideia para melhorar? Compartilhe!', color: 0xFDCB6E },
+    { id: 'duvida', emoji: '❓', name: 'Dúvida Técnica', description: 'Precisa de ajuda com código ou projeto?', color: 0x0984E3 },
+    { id: 'parceria', emoji: '🤝', name: 'Parceria', description: 'Quer fazer uma parceria com a Vindra?', color: 0x00B894 },
+    { id: 'vagas', emoji: '💼', name: 'Vagas', description: 'Quer divulgar uma oportunidade de trabalho?', color: 0x6C5CE7 },
+    { id: 'outro', emoji: '📝', name: 'Outro', description: 'Algo que não se encaixa nas opções acima.', color: 0x636E72 },
   ],
 };
 
 // ============================================
-// CLIENTE DO BOT
+// CLIENTE
 // ============================================
 
 const client = new Client({
@@ -102,8 +73,11 @@ const client = new Client({
   ],
 });
 
-// Armazenamento em memória (use banco de dados em produção)
 const ticketData = new Map();
+
+// Armazena previews pendentes de confirmação
+// chave: messageId do preview, valor: { embed, channelId, authorId }
+const pendingPreviews = new Map();
 
 // ============================================
 // UTILITÁRIOS
@@ -124,14 +98,8 @@ async function getOrCreateCategory(guild, name, reason = 'Sistema de Tickets') {
   const existing = guild.channels.cache.find(
     (c) => c.name === name && c.type === ChannelType.GuildCategory
   );
-
   if (existing) return existing;
-
-  return guild.channels.create({
-    name,
-    type: ChannelType.GuildCategory,
-    reason,
-  });
+  return guild.channels.create({ name, type: ChannelType.GuildCategory, reason });
 }
 
 async function sendLog(guild, embed) {
@@ -141,13 +109,20 @@ async function sendLog(guild, embed) {
   }
 }
 
-// Helper para deletar confirmação após 5s
-async function deleteAfter(channel, msg, ms = 5000) {
+function deleteAfter(channel, msg, ms = 5000) {
   setTimeout(() => msg.delete().catch(() => {}), ms);
 }
 
+// Converte hex (com ou sem #) pra número
+function parseColor(hex) {
+  if (!hex) return null;
+  const clean = hex.replace('#', '').trim();
+  if (!/^[0-9A-Fa-f]{6}$/.test(clean)) return null;
+  return parseInt(clean, 16);
+}
+
 // ============================================
-// CRIAÇÃO DO PAINEL DE TICKETS
+// SISTEMA DE TICKETS
 // ============================================
 
 async function createTicketPanel(interaction) {
@@ -193,15 +168,8 @@ async function createTicketPanel(interaction) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  await interaction.channel.send({
-    embeds: [embed],
-    components: [row, staffRow],
-  });
-
-  await interaction.reply({
-    content: '✅ Painel de tickets criado com sucesso!',
-    ephemeral: true,
-  });
+  await interaction.channel.send({ embeds: [embed], components: [row, staffRow] });
+  await interaction.reply({ content: '✅ Painel de tickets criado!', ephemeral: true });
 }
 
 async function createTicketPanelMessage(channel, guild) {
@@ -210,12 +178,7 @@ async function createTicketPanelMessage(channel, guild) {
     .setTitle('🎫 Central de Atendimento - Vindra Code')
     .setDescription(
       `Bem-vindo ao sistema de tickets da **Vindra Code**!\n\n` +
-      `Selecione abaixo o tipo de atendimento que você precisa.\n\n` +
-      `**Como funciona:**\n` +
-      `1️⃣ Clique no tipo de ticket desejado\n` +
-      `2️⃣ Descreva seu problema ou solicitação\n` +
-      `3️⃣ Nossa equipe responderá o mais rápido possível\n\n` +
-      `⚠️ **Atenção:** Tickets falsos ou abusivos podem resultar em ban.`
+      `Selecione abaixo o tipo de atendimento que você precisa.`
     )
     .setFooter({
       text: 'Vindra Code • Seu ticket será respondido em breve',
@@ -238,21 +201,13 @@ async function createTicketPanelMessage(channel, guild) {
       .addOptions(selectOptions)
   );
 
-  await channel.send({
-    embeds: [embed],
-    components: [row],
-  });
+  await channel.send({ embeds: [embed], components: [row] });
 }
-
-// ============================================
-// CRIAÇÃO DO TICKET
-// ============================================
 
 async function createTicket(interaction, ticketType) {
   const guild = interaction.guild;
   const user = interaction.user;
   const type = CONFIG.ticketTypes.find((t) => t.id === ticketType);
-
   if (!type) return;
 
   const existingTicket = Array.from(ticketData.values()).find(
@@ -280,9 +235,7 @@ async function createTicket(interaction, ticketType) {
     .setMaxLength(1000)
     .setRequired(true);
 
-  const firstActionRow = new ActionRowBuilder().addComponents(descInput);
-  modal.addComponents(firstActionRow);
-
+  modal.addComponents(new ActionRowBuilder().addComponents(descInput));
   await interaction.showModal(modal);
 }
 
@@ -294,18 +247,14 @@ async function handleTicketModal(interaction) {
     const ticketType = CONFIG.ticketTypes.find((t) => t.id === ticketTypeId);
     const description = interaction.fields.getTextInputValue('ticket_description');
 
-    if (!ticketType) {
-      return interaction.editReply('❌ Tipo de ticket inválido.');
-    }
+    if (!ticketType) return interaction.editReply('❌ Tipo de ticket inválido.');
 
     const guild = interaction.guild;
     const user = interaction.user;
     const ticketId = generateTicketId();
 
     let category = guild.channels.cache.get(CONFIG.CATEGORY_ID);
-    if (!category) {
-      category = await getOrCreateCategory(guild, '🎫・tickets');
-    }
+    if (!category) category = await getOrCreateCategory(guild, '🎫・tickets');
 
     const ticketRole = await guild.roles.create({
       name: `🎫 │ ${user.username}`,
@@ -320,10 +269,7 @@ async function handleTicketModal(interaction) {
       parent: category,
       topic: `Ticket ${ticketId} | Usuário: ${user.tag} (${user.id}) | Tipo: ${ticketType.name}`,
       permissionOverwrites: [
-        {
-          id: guild.id,
-          deny: [PermissionFlagsBits.ViewChannel],
-        },
+        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
         {
           id: ticketRole.id,
           allow: [
@@ -397,13 +343,12 @@ async function handleTicketModal(interaction) {
       embeds: [ticketEmbed],
       components: [actionRow],
     });
-
     await notifyMsg.pin();
 
     const logEmbed = new EmbedBuilder()
       .setColor(CONFIG.colors.success)
       .setTitle('🎫 Ticket Criado')
-      .setFields(
+      .addFields(
         { name: 'Ticket ID', value: ticketId, inline: true },
         { name: 'Tipo', value: ticketType.name, inline: true },
         { name: 'Usuário', value: user.toString(), inline: true },
@@ -416,82 +361,54 @@ async function handleTicketModal(interaction) {
     await interaction.editReply({
       content: `✅ Seu ticket foi criado! Acesse aqui: ${ticketChannel.toString()}`,
     });
-
   } catch (error) {
     console.error('❌ Erro ao criar ticket:', error);
-
     try {
       if (interaction.deferred) {
-        await interaction.editReply(`❌ Erro ao criar ticket: ${error.message}`);
+        await interaction.editReply(`❌ Erro: ${error.message}`);
       } else {
         await interaction.reply({ content: `❌ Erro: ${error.message}`, ephemeral: true });
       }
-    } catch (e) {
-      console.error('Não foi possível enviar erro:', e);
-    }
+    } catch (e) {}
   }
 }
 
-// ============================================
-// GERENCIAMENTO DE TICKETS
-// ============================================
-
 async function claimTicket(interaction, ticketId) {
   const ticket = ticketData.get(ticketId);
-  if (!ticket) {
-    return interaction.reply({
-      content: '❌ Ticket não encontrado.',
-      ephemeral: true,
-    });
-  }
+  if (!ticket) return interaction.reply({ content: '❌ Ticket não encontrado.', ephemeral: true });
+  if (ticket.claimedBy) return interaction.reply({ content: '⚠️ Já foi reclamado.', ephemeral: true });
 
-  if (ticket.claimedBy) {
-    return interaction.reply({
-      content: '⚠️ Este ticket já foi reclamado.',
-      ephemeral: true,
-    });
-  }
-
-  ticket.claimedBy = {
-    id: interaction.user.id,
-    tag: interaction.user.tag,
-  };
+  ticket.claimedBy = { id: interaction.user.id, tag: interaction.user.tag };
   ticketData.set(ticketId, ticket);
 
   const channel = interaction.guild.channels.cache.get(ticket.channelId);
   if (channel) {
-    const claimEmbed = new EmbedBuilder()
-      .setColor(CONFIG.colors.warning)
-      .setDescription(`📌 Este ticket está sendo atendido por ${interaction.user}`);
-
-    await channel.send({ embeds: [claimEmbed] });
+    await channel.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(CONFIG.colors.warning)
+          .setDescription(`📌 Este ticket está sendo atendido por ${interaction.user}`),
+      ],
+    });
   }
 
-  await interaction.reply({
-    content: `📌 Você está atendendo o ticket #${ticketId}.`,
-    ephemeral: true,
-  });
+  await interaction.reply({ content: `📌 Você está atendendo o ticket #${ticketId}.`, ephemeral: true });
 
-  const logEmbed = new EmbedBuilder()
-    .setColor(CONFIG.colors.warning)
-    .setTitle('📌 Ticket Reclamado')
-    .setFields(
-      { name: 'Ticket ID', value: ticketId, inline: true },
-      { name: 'Atendente', value: interaction.user.toString(), inline: true }
-    )
-    .setTimestamp();
-
-  await sendLog(interaction.guild, logEmbed);
+  await sendLog(interaction.guild,
+    new EmbedBuilder()
+      .setColor(CONFIG.colors.warning)
+      .setTitle('📌 Ticket Reclamado')
+      .addFields(
+        { name: 'Ticket ID', value: ticketId, inline: true },
+        { name: 'Atendente', value: interaction.user.toString(), inline: true }
+      )
+      .setTimestamp()
+  );
 }
 
 async function closeTicket(interaction, ticketId) {
   const ticket = ticketData.get(ticketId);
-  if (!ticket) {
-    return interaction.reply({
-      content: '❌ Ticket não encontrado.',
-      ephemeral: true,
-    });
-  }
+  if (!ticket) return interaction.reply({ content: '❌ Ticket não encontrado.', ephemeral: true });
 
   const channel = interaction.guild.channels.cache.get(ticket.channelId);
   let transcript = [];
@@ -512,10 +429,7 @@ async function closeTicket(interaction, ticketId) {
   }
 
   ticket.status = 'closed';
-  ticket.closedBy = {
-    id: interaction.user.id,
-    tag: interaction.user.tag,
-  };
+  ticket.closedBy = { id: interaction.user.id, tag: interaction.user.tag };
   ticket.closedAt = new Date();
   ticket.transcript = transcript;
   ticketData.set(ticketId, ticket);
@@ -523,45 +437,401 @@ async function closeTicket(interaction, ticketId) {
   if (channel) {
     const transcriptChannel = interaction.guild.channels.cache.get(CONFIG.LOG_CHANNEL);
     if (transcriptChannel && transcript) {
-      const transcriptEmbed = new EmbedBuilder()
-        .setColor(CONFIG.colors.info)
-        .setTitle(`📋 Transcrição - Ticket #${ticketId}`)
-        .setFields(
-          { name: 'Usuário', value: ticket.userTag, inline: true },
-          { name: 'Tipo', value: ticket.typeName, inline: true },
-          { name: 'Atendente', value: ticket.claimedBy?.tag || 'Não reclamado', inline: true },
-          { name: 'Fechado por', value: interaction.user.tag, inline: true }
-        )
-        .setDescription(`\`\`\`\n${transcript.slice(0, 4000)}\n\`\`\``)
-        .setTimestamp();
-
-      await transcriptChannel.send({ embeds: [transcriptEmbed] });
+      await transcriptChannel.send({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(CONFIG.colors.info)
+            .setTitle(`📋 Transcrição - Ticket #${ticketId}`)
+            .addFields(
+              { name: 'Usuário', value: ticket.userTag, inline: true },
+              { name: 'Tipo', value: ticket.typeName, inline: true },
+              { name: 'Atendente', value: ticket.claimedBy?.tag || 'Não reclamado', inline: true },
+              { name: 'Fechado por', value: interaction.user.tag, inline: true }
+            )
+            .setDescription(`\`\`\`\n${transcript.slice(0, 4000)}\n\`\`\``)
+            .setTimestamp(),
+        ],
+      });
     }
-
     await channel.delete(`Ticket ${ticketId} fechado por ${interaction.user.tag}`);
   }
 
   const ticketRole = interaction.guild.roles.cache.get(ticket.roleId);
-  if (ticketRole) {
-    await ticketRole.delete('Ticket fechado - limpando cargo temporário');
-  }
+  if (ticketRole) await ticketRole.delete('Ticket fechado');
 
-  await interaction.reply({
-    content: `🔒 Ticket #${ticketId} foi fechado.`,
-    ephemeral: true,
-  });
+  await interaction.reply({ content: `🔒 Ticket #${ticketId} fechado.`, ephemeral: true });
 
-  const logEmbed = new EmbedBuilder()
-    .setColor(CONFIG.colors.danger)
-    .setTitle('🔒 Ticket Fechado')
-    .setFields(
-      { name: 'Ticket ID', value: ticketId, inline: true },
-      { name: 'Usuário', value: ticket.userTag, inline: true },
-      { name: 'Fechado por', value: interaction.user.toString(), inline: true }
+  await sendLog(interaction.guild,
+    new EmbedBuilder()
+      .setColor(CONFIG.colors.danger)
+      .setTitle('🔒 Ticket Fechado')
+      .addFields(
+        { name: 'Ticket ID', value: ticketId, inline: true },
+        { name: 'Usuário', value: ticket.userTag, inline: true },
+        { name: 'Fechado por', value: interaction.user.toString(), inline: true }
+      )
+      .setTimestamp()
+  );
+}
+
+// ============================================
+// PAINEL DE MENSAGENS INTERATIVO
+// ============================================
+
+// Cria o painel com botões para cada tipo de embed
+async function createEmbedPanel(channel, guild) {
+  const embed = new EmbedBuilder()
+    .setColor(CONFIG.colors.primary)
+    .setTitle('📨 Painel de Mensagens - Vindra Code')
+    .setDescription(
+      'Clique em um botão abaixo para criar uma mensagem estilizada.\n' +
+      'Você poderá revisar antes de postar no canal.\n\n' +
+      '**Tipos disponíveis:**\n' +
+      '📢 **Anúncio** — Comunicado importante para o servidor\n' +
+      '💼 **Vaga** — Divulgar oportunidade de trabalho\n' +
+      '🤝 **Parceria** — Anunciar parceria com outra empresa/projeto\n' +
+      '🎉 **Boas-vindas** — Dar boas-vindas a um novo membro\n' +
+      '📜 **Regras** — Enviar embed pronto de regras'
     )
+    .setFooter({ text: 'Vindra Code • Apenas staff pode usar' })
     .setTimestamp();
 
-  await sendLog(interaction.guild, logEmbed);
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('embed_anuncio')
+      .setLabel('📢 Anúncio')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('embed_vagas')
+      .setLabel('💼 Vaga')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('embed_parceria')
+      .setLabel('🤝 Parceria')
+      .setStyle(ButtonStyle.Success),
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('embed_boasvindas')
+      .setLabel('🎉 Boas-vindas')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('embed_regras')
+      .setLabel('📜 Regras')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('embed_personalizado')
+      .setLabel('✨ Personalizado')
+      .setStyle(ButtonStyle.Primary),
+  );
+
+  await channel.send({ embeds: [embed], components: [row1, row2] });
+}
+
+// Abre modal para ANÚNCIO
+function buildAnuncioModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('modal_anuncio')
+    .setTitle('📢 Novo Anúncio');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('titulo')
+        .setLabel('Título do anúncio')
+        .setPlaceholder('Ex: Nova atualização do servidor!')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(100)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('descricao')
+        .setLabel('Descrição')
+        .setPlaceholder('Escreva os detalhes do anúncio...')
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(2000)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('cor')
+        .setLabel('Cor (hex) - opcional')
+        .setPlaceholder('Ex: 6C5CE7 (roxo Vindra). Deixe vazio para padrão.')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(7)
+        .setRequired(false)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('imagem')
+        .setLabel('URL da imagem - opcional')
+        .setPlaceholder('https://i.imgur.com/... (banner do anúncio)')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(500)
+        .setRequired(false)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('ping')
+        .setLabel('Mencionar @everyone? (sim/não)')
+        .setPlaceholder('Digite "sim" para mencionar @everyone')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(3)
+        .setRequired(false)
+    ),
+  );
+
+  return modal;
+}
+
+// Abre modal para VAGAS
+function buildVagasModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('modal_vagas')
+    .setTitle('💼 Nova Vaga');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('titulo')
+        .setLabel('Título da vaga')
+        .setPlaceholder('Ex: Desenvolvedor Front-end')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(100)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('descricao')
+        .setLabel('Descrição da vaga')
+        .setPlaceholder('Requisitos, responsabilidades, benefícios...')
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(2000)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('link')
+        .setLabel('Link para candidatura - opcional')
+        .setPlaceholder('https://... ou #canal')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(500)
+        .setRequired(false)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('cor')
+        .setLabel('Cor (hex) - opcional')
+        .setPlaceholder('Ex: 00B894 (verde). Vazio = padrão.')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(7)
+        .setRequired(false)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('ping')
+        .setLabel('Mencionar @everyone? (sim/não)')
+        .setPlaceholder('Digite "sim" para mencionar')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(3)
+        .setRequired(false)
+    ),
+  );
+
+  return modal;
+}
+
+// Abre modal para PARCERIA
+function buildParceriaModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('modal_parceria')
+    .setTitle('🤝 Nova Parceria');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('titulo')
+        .setLabel('Nome da empresa/projeto')
+        .setPlaceholder('Ex: Logo Studio')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(100)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('descricao')
+        .setLabel('Descrição da parceria')
+        .setPlaceholder('O que a empresa faz, como será a parceria...')
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(2000)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('link')
+        .setLabel('Link - opcional')
+        .setPlaceholder('Site, Discord, rede social...')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(500)
+        .setRequired(false)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('cor')
+        .setLabel('Cor (hex) - opcional')
+        .setPlaceholder('Vazio = padrão (azul)')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(7)
+        .setRequired(false)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('ping')
+        .setLabel('Mencionar @everyone? (sim/não)')
+        .setPlaceholder('Digite "sim" para mencionar')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(3)
+        .setRequired(false)
+    ),
+  );
+
+  return modal;
+}
+
+// Modal para BOAS-VINDAS
+function buildBoasVindasModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('modal_boasvindas')
+    .setTitle('🎉 Boas-vindas');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('user_id')
+        .setLabel('ID do usuário')
+        .setPlaceholder('Cole o ID do Discord do usuário (clique direito no perfil com Dev Mode ativo)')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(25)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('mensagem')
+        .setLabel('Mensagem personalizada')
+        .setPlaceholder('Ex: Bem-vindo à Vindra Code! Esperamos você no servidor.')
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(500)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('cor')
+        .setLabel('Cor (hex) - opcional')
+        .setPlaceholder('Vazio = verde padrão')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(7)
+        .setRequired(false)
+    ),
+  );
+
+  return modal;
+}
+
+// Modal PERSONALIZADO (controle total)
+function buildPersonalizadoModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('modal_personalizado')
+    .setTitle('✨ Embed Personalizado');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('titulo')
+        .setLabel('Título')
+        .setPlaceholder('Título do embed')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(100)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('descricao')
+        .setLabel('Descrição')
+        .setPlaceholder('Texto principal do embed (suporta markdown)')
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(2000)
+        .setRequired(true)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('cor')
+        .setLabel('Cor (hex) - opcional')
+        .setPlaceholder('Ex: 6C5CE7. Vazio = roxo padrão.')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(7)
+        .setRequired(false)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('imagem')
+        .setLabel('URL da imagem grande - opcional')
+        .setPlaceholder('https://...')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(500)
+        .setRequired(false)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('thumbnail')
+        .setLabel('URL do thumbnail (canto) - opcional')
+        .setPlaceholder('https://... (ícone pequeno no canto)')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(500)
+        .setRequired(false)
+    ),
+  );
+
+  return modal;
+}
+
+// Envia preview com botões de confirmação
+async function sendPreview(interaction, embed, pingEveryone = false, customPing = '') {
+  // Ping (opcional): @everyone, @here, ou vazio
+  const ping = pingEveryone ? '@everyone' : (customPing || '');
+
+  const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`preview_post_${interaction.id}`)
+      .setLabel('✅ Postar no canal')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`preview_cancel_${interaction.id}`)
+      .setLabel('❌ Cancelar')
+      .setStyle(ButtonStyle.Danger),
+  );
+
+  const previewEmbed = new EmbedBuilder()
+    .setColor(CONFIG.colors.warning)
+    .setTitle('👀 Preview - Revise antes de postar')
+    .setDescription('Confira o embed abaixo e clique em **Postar** para enviar no canal.');
+
+  // Mensagem ephemeral de preview (só o autor vê os botões)
+  await interaction.editReply({
+    content: ping || null,
+    embeds: [previewEmbed, embed],
+    components: [actionRow],
+  });
+
+  // Salva o embed + interactionId pra usar no botão
+  // Truque: usamos o id da própria reply
+  // Mas ephemeral replies só vivem 15min; vamos usar a mensagem ephemeral como referência
+  // Solução: guardar no Map com interaction.id
+  pendingPreviews.set(interaction.id, {
+    embed,
+    userId: interaction.user.id,
+  });
 }
 
 // ============================================
@@ -570,62 +840,304 @@ async function closeTicket(interaction, ticketId) {
 
 client.on('interactionCreate', async (interaction) => {
   try {
+    // ========== SELECT MENU / TICKETS ==========
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_create') {
       await createTicket(interaction, interaction.values[0]);
       return;
     }
 
+    // ========== MODAL DE TICKET ==========
     if (interaction.isModalSubmit() && interaction.customId.startsWith('ticket_desc_')) {
       await handleTicketModal(interaction);
       return;
     }
 
+    // ========== MODAIS DE EMBED ==========
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('modal_')) {
+      await handleEmbedModal(interaction);
+      return;
+    }
+
+    // ========== BOTÕES ==========
     if (interaction.isButton()) {
       const customId = interaction.customId;
 
+      // Botões de ticket
       if (customId.startsWith('ticket_claim_')) {
         const ticketId = customId.replace('ticket_claim_', '');
         await claimTicket(interaction, ticketId);
         return;
       }
-
       if (customId.startsWith('ticket_close_')) {
         const ticketId = customId.replace('ticket_close_', '');
         await closeTicket(interaction, ticketId);
         return;
       }
-
       if (customId === 'ticket_panel_refresh') {
         await createTicketPanel(interaction);
+        return;
+      }
+
+      // Botões do painel de embeds (abre modal)
+      if (customId === 'embed_anuncio') {
+        if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Apenas staff.', ephemeral: true });
+        await interaction.showModal(buildAnuncioModal());
+        return;
+      }
+      if (customId === 'embed_vagas') {
+        if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Apenas staff.', ephemeral: true });
+        await interaction.showModal(buildVagasModal());
+        return;
+      }
+      if (customId === 'embed_parceria') {
+        if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Apenas staff.', ephemeral: true });
+        await interaction.showModal(buildParceriaModal());
+        return;
+      }
+      if (customId === 'embed_boasvindas') {
+        if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Apenas staff.', ephemeral: true });
+        await interaction.showModal(buildBoasVindasModal());
+        return;
+      }
+      if (customId === 'embed_personalizado') {
+        if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Apenas staff.', ephemeral: true });
+        await interaction.showModal(buildPersonalizadoModal());
+        return;
+      }
+      if (customId === 'embed_regras') {
+        if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Apenas staff.', ephemeral: true });
+        await sendRegrasEmbed(interaction);
+        return;
+      }
+
+      // Botões de preview (postar/cancelar)
+      if (customId.startsWith('preview_post_')) {
+        await handlePreviewPost(interaction);
+        return;
+      }
+      if (customId.startsWith('preview_cancel_')) {
+        await handlePreviewCancel(interaction);
         return;
       }
     }
   } catch (error) {
     console.error('❌ Erro em interactionCreate:', error);
-
-    const errorMsg = `❌ Erro ao processar ação: ${error.message}`;
     try {
+      const errorMsg = `❌ Erro: ${error.message}`;
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({ content: errorMsg, ephemeral: true });
       } else {
         await interaction.reply({ content: errorMsg, ephemeral: true });
       }
-    } catch (e) {
-      console.error('Não foi possível enviar erro:', e);
-    }
+    } catch (e) {}
   }
 });
 
+// Handler genérico dos modais de embed
+async function handleEmbedModal(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+
+  const type = interaction.customId.replace('modal_', '');
+  let embed;
+  let pingEveryone = false;
+  let customPing = '';
+
+  const get = (id) => interaction.fields.getTextInputValue(id) || '';
+
+  if (type === 'anuncio') {
+    const titulo = get('titulo');
+    const descricao = get('descricao');
+    const cor = parseColor(get('cor')) || CONFIG.colors.primary;
+    const imagem = get('imagem');
+    const ping = get('ping').toLowerCase().trim();
+
+    pingEveryone = ping === 'sim';
+
+    embed = new EmbedBuilder()
+      .setColor(cor)
+      .setTitle(`📢 ${titulo}`)
+      .setDescription(descricao)
+      .setFooter({ text: `Vindra Code • Anunciado por ${interaction.user.tag}` })
+      .setTimestamp();
+    if (imagem) embed.setImage(imagem);
+  }
+
+  else if (type === 'vagas') {
+    const titulo = get('titulo');
+    const descricao = get('descricao');
+    const link = get('link');
+    const cor = parseColor(get('cor')) || CONFIG.colors.success;
+    const ping = get('ping').toLowerCase().trim();
+
+    pingEveryone = ping === 'sim';
+
+    embed = new EmbedBuilder()
+      .setColor(cor)
+      .setTitle(`💼 ${titulo}`)
+      .setDescription(descricao)
+      .addFields({ name: '🔗 Candidatar-se', value: link || 'Abra um ticket!' })
+      .setFooter({ text: `Vindra Code • Postado por ${interaction.user.tag}` })
+      .setTimestamp();
+  }
+
+  else if (type === 'parceria') {
+    const titulo = get('titulo');
+    const descricao = get('descricao');
+    const link = get('link');
+    const cor = parseColor(get('cor')) || CONFIG.colors.info;
+    const ping = get('ping').toLowerCase().trim();
+
+    pingEveryone = ping === 'sim';
+
+    embed = new EmbedBuilder()
+      .setColor(cor)
+      .setTitle(`🤝 ${titulo}`)
+      .setDescription(descricao)
+      .addFields({ name: '🔗 Mais informações', value: link || 'Abra um ticket!' })
+      .setFooter({ text: `Vindra Code • Postado por ${interaction.user.tag}` })
+      .setTimestamp();
+  }
+
+  else if (type === 'boasvindas') {
+    const userId = get('user_id');
+    const mensagem = get('mensagem');
+    const cor = parseColor(get('cor')) || CONFIG.colors.success;
+
+    let user;
+    try {
+      user = await client.users.fetch(userId);
+    } catch (e) {
+      return interaction.editReply('❌ ID de usuário inválido. Verifique se digitou certo e se o Dev Mode tá ativo.');
+    }
+
+    embed = new EmbedBuilder()
+      .setColor(cor)
+      .setTitle('🎉 Bem-vindo(a)!')
+      .setDescription(
+        `${user}, ${mensagem}\n\n` +
+        `📜 Leia as regras em <#${interaction.channel.id}>\n` +
+        `🎫 Dúvidas? Abra um ticket!`
+      )
+      .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
+      .setFooter({ text: `Vindra Code • Boas-vindas por ${interaction.user.tag}` })
+      .setTimestamp();
+
+    // Pra boas-vindas, menciona o user no content
+    customPing = `${user}`;
+  }
+
+  else if (type === 'personalizado') {
+    const titulo = get('titulo');
+    const descricao = get('descricao');
+    const cor = parseColor(get('cor')) || CONFIG.colors.primary;
+    const imagem = get('imagem');
+    const thumbnail = get('thumbnail');
+
+    embed = new EmbedBuilder()
+      .setColor(cor)
+      .setTitle(titulo)
+      .setDescription(descricao)
+      .setFooter({ text: `Vindra Code • Enviado por ${interaction.user.tag}` })
+      .setTimestamp();
+    if (imagem) embed.setImage(imagem);
+    if (thumbnail) embed.setThumbnail(thumbnail);
+  }
+
+  if (!embed) return interaction.editReply('❌ Tipo desconhecido.');
+
+  await sendPreview(interaction, embed, pingEveryone, customPing);
+}
+
+// Envia embed pronto de regras (sem preview, manda direto)
+async function sendRegrasEmbed(interaction) {
+  const embed = new EmbedBuilder()
+    .setColor(CONFIG.colors.primary)
+    .setTitle('📜 Regras da Vindra Code')
+    .setDescription('Para manter a comunidade saudável, siga estas regras:')
+    .addFields(
+      {
+        name: '✅ Comportamento',
+        value: '• Respeite todos os membros\n• Sem spam, flood ou caps lock excessivo\n• Sem conteúdo NSFW ou ofensivo',
+        inline: false,
+      },
+      {
+        name: '💬 Canais de texto',
+        value: '• Use o canal correto para cada assunto\n• Evite mensagens excessivamente longas\n• Sem divulgação sem autorização',
+        inline: false,
+      },
+      {
+        name: '🔊 Canais de voz',
+        value: '• Sem gritos ou sons irritantes\n• Respeite quem está falando',
+        inline: false,
+      },
+      {
+        name: '⚠️ Punições',
+        value: 'O descumprimento resulta em advertência, mute ou ban conforme a gravidade.',
+        inline: false,
+      }
+    )
+    .setFooter({ text: 'Vindra Code • Leia com atenção' })
+    .setTimestamp();
+
+  await interaction.channel.send({ embeds: [embed] });
+  await interaction.reply({ content: '✅ Regras enviadas!', ephemeral: true });
+}
+
+// Confirma e posta o embed no canal
+async function handlePreviewPost(interaction) {
+  const interactionId = interaction.customId.replace('preview_post_', '');
+  const pending = pendingPreviews.get(interactionId);
+
+  if (!pending) {
+    return interaction.update({
+      embeds: [new EmbedBuilder().setColor(CONFIG.colors.danger).setDescription('❌ Preview expirou.')],
+      components: [],
+    });
+  }
+
+  if (pending.userId !== interaction.user.id) {
+    return interaction.reply({ content: '❌ Apenas o autor do preview pode postar.', ephemeral: true });
+  }
+
+  // Recupera o ping do embed original (guardamos junto)
+  // Truque: re-envia direto sem ping (mais seguro)
+  await interaction.channel.send({ embeds: [pending.embed] });
+
+  pendingPreviews.delete(interactionId);
+
+  await interaction.update({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(CONFIG.colors.success)
+        .setDescription('✅ Mensagem postada com sucesso!'),
+    ],
+    components: [],
+  });
+}
+
+async function handlePreviewCancel(interaction) {
+  const interactionId = interaction.customId.replace('preview_cancel_', '');
+  pendingPreviews.delete(interactionId);
+
+  await interaction.update({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(CONFIG.colors.danger)
+        .setDescription('❌ Envio cancelado.'),
+    ],
+    components: [],
+  });
+}
+
 // ============================================
-// COMANDOS DE SLASH
+// READY
 // ============================================
 
 client.once('ready', async () => {
   console.log(`
   ╔═══════════════════════════════════════════╗
   ║                                           ║
-  ║   🎫 VINDRA CODE - SISTEMA DE TICKETS     ║
-  ║   ✨ Comandos de Embed disponíveis       ║
+  ║   🎫 VINDRA CODE - TICKETS + EMBEDS       ║
   ║                                           ║
   ║   Bot conectado e pronto!                 ║
   ║   Servidor: ${client.guilds.cache.first()?.name || 'N/A'}
@@ -634,294 +1146,23 @@ client.once('ready', async () => {
   `);
 
   const commands = [
-    {
-      name: 'ticket-panel',
-      description: 'Cria o painel de tickets',
-      defaultMemberPermissions: PermissionFlagsBits.Administrator,
-    },
-    {
-      name: 'ticket-close',
-      description: 'Fecha o ticket atual (apenas no canal de ticket)',
-      defaultMemberPermissions: PermissionFlagsBits.ManageChannels,
-    },
-    {
-      name: 'ticket-info',
-      description: 'Mostra informações do ticket atual',
-    },
-    {
-      name: 'anuncio',
-      description: 'Envia um anúncio estilizado',
-      options: [
-        {
-          name: 'titulo',
-          type: 3, // STRING
-          description: 'Título do anúncio',
-          required: true,
-        },
-        {
-          name: 'descricao',
-          type: 3,
-          description: 'Descrição do anúncio',
-          required: true,
-        },
-      ],
-    },
-    {
-      name: 'vagas',
-      description: 'Anuncia uma vaga de emprego',
-      options: [
-        {
-          name: 'titulo',
-          type: 3,
-          description: 'Título da vaga',
-          required: true,
-        },
-        {
-          name: 'descricao',
-          type: 3,
-          description: 'Descrição da vaga',
-          required: true,
-        },
-      ],
-    },
-    {
-      name: 'helpembed',
-      description: 'Mostra todos os comandos de embed disponíveis',
-    },
+    { name: 'ticket-panel', description: 'Cria painel de tickets', defaultMemberPermissions: PermissionFlagsBits.Administrator },
+    { name: 'ticket-close', description: 'Fecha ticket atual', defaultMemberPermissions: PermissionFlagsBits.ManageChannels },
+    { name: 'ticket-info', description: 'Info do ticket atual' },
+    { name: 'painel-embeds', description: 'Abre painel interativo de mensagens' },
+    { name: 'help', description: 'Lista comandos do bot' },
   ];
 
   try {
     await client.application.commands.set(commands);
-    console.log('✅ Comandos de slash registrados!');
+    console.log('✅ Comandos slash registrados!');
   } catch (error) {
-    console.log('⚠️ Não foi possível registrar comandos:', error.message);
+    console.log('⚠️ Erro ao registrar comandos:', error.message);
   }
 });
 
 // ============================================
-// COMANDOS DE EMBED (mensagens estilizadas)
-// ============================================
-
-// !anuncio <titulo> | <descrição> | [cor] | [imagem]
-async function handleAnuncio(message, args) {
-  const joined = args.join(' ');
-  const parts = joined.split('|').map((s) => s.trim());
-
-  if (parts.length < 2) {
-    return message.reply(
-      '❌ **Uso:** `!anuncio <titulo> | <descrição> | [cor hex] | [url da imagem]`\n' +
-      '**Exemplo:** `!anuncio Novidade! | Novo recurso disponível | #6C5CE7`'
-    );
-  }
-
-  const [title, description, colorHex, imageUrl] = parts;
-  const color = colorHex ? parseInt(colorHex.replace('#', ''), 16) : CONFIG.colors.primary;
-
-  const embed = new EmbedBuilder()
-    .setColor(color)
-    .setTitle(title)
-    .setDescription(description)
-    .setImage(imageUrl || null)
-    .setFooter({ text: `Vindra Code • Anunciado por ${message.author.tag}` })
-    .setTimestamp();
-
-  try {
-    await message.delete();
-  } catch (e) {}
-
-  const sent = await message.channel.send({ embeds: [embed] });
-  const confirm = await message.channel.send('✅ Anúncio enviado!');
-  deleteAfter(message.channel, confirm);
-  return sent;
-}
-
-// !regras - Envia embed de regras
-async function handleRegras(message) {
-  const embed = new EmbedBuilder()
-    .setColor(CONFIG.colors.primary)
-    .setTitle('📜 Regras da Vindra Code')
-    .setDescription('Para manter a comunidade saudável, siga estas regras:')
-    .addFields(
-      {
-        name: '✅ Comportamento',
-        value:
-          '• Respeite todos os membros\n' +
-          '• Sem spam, flood ou caps lock excessivo\n' +
-          '• Sem conteúdo NSFW ou ofensivo',
-        inline: false,
-      },
-      {
-        name: '💬 Canais de texto',
-        value:
-          '• Use o canal correto para cada assunto\n' +
-          '• Evite mensagens excessivamente longas\n' +
-          '• Sem divulgação sem autorização',
-        inline: false,
-      },
-      {
-        name: '🔊 Canais de voz',
-        value:
-          '• Sem gritos ou sons irritantes\n' +
-          '• Respeite quem está falando',
-        inline: false,
-      },
-      {
-        name: '⚠️ Punições',
-        value: 'O descumprimento das regras resulta em advertência, mute ou ban, dependendo da gravidade.',
-        inline: false,
-      }
-    )
-    .setFooter({ text: 'Vindra Code • Leia com atenção' })
-    .setTimestamp();
-
-  try {
-    await message.delete();
-  } catch (e) {}
-
-  const sent = await message.channel.send({ embeds: [embed] });
-  const confirm = await message.channel.send('✅ Regras enviadas!');
-  deleteAfter(message.channel, confirm);
-  return sent;
-}
-
-// !vagas <titulo> | <descrição> | [link]
-async function handleVagas(message, args) {
-  const joined = args.join(' ');
-  const parts = joined.split('|').map((s) => s.trim());
-
-  if (parts.length < 2) {
-    return message.reply(
-      '❌ **Uso:** `!vagas <titulo> | <descrição> | [link]`\n' +
-      '**Exemplo:** `!vagas Dev Frontend | Estamos contratando | https://...`'
-    );
-  }
-
-  const [title, description, link] = parts;
-
-  const embed = new EmbedBuilder()
-    .setColor(CONFIG.colors.success)
-    .setTitle(`💼 ${title}`)
-    .setDescription(description)
-    .addFields({
-      name: '🔗 Como se candidatar',
-      value: link || 'Entre em contato via ticket!',
-    })
-    .setFooter({ text: `Vindra Code • Postado por ${message.author.tag}` })
-    .setTimestamp();
-
-  try {
-    await message.delete();
-  } catch (e) {}
-
-  const sent = await message.channel.send({ embeds: [embed] });
-  const confirm = await message.channel.send('✅ Vaga anunciada!');
-  deleteAfter(message.channel, confirm);
-  return sent;
-}
-
-// !parceria <nome> | <descrição> | [link]
-async function handleParceria(message, args) {
-  const joined = args.join(' ');
-  const parts = joined.split('|').map((s) => s.trim());
-
-  if (parts.length < 2) {
-    return message.reply('❌ **Uso:** `!parceria <nome> | <descrição> | [link]`');
-  }
-
-  const [title, description, link] = parts;
-
-  const embed = new EmbedBuilder()
-    .setColor(CONFIG.colors.info)
-    .setTitle(`🤝 ${title}`)
-    .setDescription(description)
-    .addFields({
-      name: '🔗 Mais informações',
-      value: link || 'Abra um ticket para saber mais!',
-    })
-    .setFooter({ text: `Vindra Code • Postado por ${message.author.tag}` })
-    .setTimestamp();
-
-  try {
-    await message.delete();
-  } catch (e) {}
-
-  const sent = await message.channel.send({ embeds: [embed] });
-  const confirm = await message.channel.send('✅ Parceria anunciada!');
-  deleteAfter(message.channel, confirm);
-  return sent;
-}
-
-// !boasvindas @user [mensagem]
-async function handleBoasVindas(message, args) {
-  const user = message.mentions.users.first();
-  if (!user) {
-    return message.reply('❌ Mencione alguém: `!boasvindas @user [mensagem opcional]`');
-  }
-
-  const customMsg = args.slice(1).join(' ') || 'Seja bem-vindo(a) à nossa comunidade!';
-
-  const embed = new EmbedBuilder()
-    .setColor(CONFIG.colors.success)
-    .setTitle('🎉 Bem-vindo(a)!')
-    .setDescription(
-      `${user}, ${customMsg}\n\n` +
-      `📜 Leia as regras em <#${message.channel.id}>\n` +
-      `🎫 Qualquer dúvida, abra um ticket!`
-    )
-    .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
-    .setFooter({ text: `Vindra Code • Boas-vindas dadas por ${message.author.tag}` })
-    .setTimestamp();
-
-  try {
-    await message.delete();
-  } catch (e) {}
-
-  const sent = await message.channel.send({ content: `${user}`, embeds: [embed] });
-  const confirm = await message.channel.send('✅ Boas-vindas enviada!');
-  deleteAfter(message.channel, confirm);
-  return sent;
-}
-
-// !helpembed - Lista os comandos de embed
-async function handleHelpEmbed(message) {
-  const embed = new EmbedBuilder()
-    .setColor(CONFIG.colors.primary)
-    .setTitle('📚 Comandos de Embed - Vindra Code')
-    .setDescription('Use estes comandos para enviar mensagens estilizadas (sem precisar de Nitro):')
-    .addFields(
-      {
-        name: '📢 !anuncio',
-        value: '`!anuncio <titulo> | <descrição> | [cor] | [imagem]`',
-      },
-      {
-        name: '📜 !regras',
-        value: '`!regras` (envia embed de regras no canal)',
-      },
-      {
-        name: '💼 !vagas',
-        value: '`!vagas <titulo> | <descrição> | [link]`',
-      },
-      {
-        name: '🤝 !parceria',
-        value: '`!parceria <nome> | <descrição> | [link]`',
-      },
-      {
-        name: '🎉 !boasvindas',
-        value: '`!boasvindas @user [mensagem]`',
-      },
-      {
-        name: '❓ !helpembed',
-        value: 'Mostra esta mensagem',
-      }
-    )
-    .setFooter({ text: 'Vindra Code • Apenas staff pode usar estes comandos' })
-    .setTimestamp();
-
-  return message.reply({ embeds: [embed] });
-}
-
-// ============================================
-// COMANDOS DE MENSAGEM (texto normal)
+// COMANDOS DE MENSAGEM
 // ============================================
 
 client.on('messageCreate', async (message) => {
@@ -931,79 +1172,76 @@ client.on('messageCreate', async (message) => {
   const args = message.content.slice(1).split(/ +/);
   const command = args.shift().toLowerCase();
 
-  // !painel - Cria o painel de tickets
+  // !painel - Painel de tickets
   if (command === 'painel' || command === 'ticket-panel') {
     if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return message.reply('❌ Apenas administradores podem usar este comando.');
+      return message.reply('❌ Apenas administradores.');
     }
-    try {
-      await message.delete();
-    } catch (e) {}
+    try { await message.delete(); } catch (e) {}
     await createTicketPanelMessage(message.channel, message.guild);
     return;
   }
 
-  // !fechar - Fecha o ticket atual
+  // !painel-embeds - Abre painel interativo de mensagens
+  if (command === 'painel-embeds' || command === 'painel-mensagens') {
+    if (!isStaff(message.member)) return message.reply('❌ Apenas staff.');
+    try { await message.delete(); } catch (e) {}
+    await createEmbedPanel(message.channel, message.guild);
+    return;
+  }
+
+  // !fechar - Fecha ticket
   if (command === 'fechar' || command === 'ticket-close') {
     const ticket = Array.from(ticketData.values()).find(
       (t) => t.channelId === message.channel.id
     );
-
-    if (!ticket) {
-      return message.reply('❌ Este canal não é um ticket.');
-    }
-
-    await message.reply('🔒 Fechando ticket...');
+    if (!ticket) return message.reply('❌ Este canal não é um ticket.');
+    await message.reply('🔒 Fechando...');
     await closeTicket(message, ticket.id);
     return;
   }
 
-  // !info - Mostra info do ticket
+  // !info - Info do ticket
   if (command === 'info' || command === 'ticket-info') {
     const ticket = Array.from(ticketData.values()).find(
       (t) => t.channelId === message.channel.id
     );
+    if (!ticket) return message.reply('❌ Este canal não é um ticket.');
 
-    if (!ticket) {
-      return message.reply('❌ Este canal não é um ticket.');
-    }
-
-    const infoEmbed = new EmbedBuilder()
-      .setColor(CONFIG.colors.primary)
-      .setTitle(`📋 Ticket #${ticket.id}`)
-      .addFields(
-        { name: 'Tipo', value: ticket.typeName, inline: true },
-        { name: 'Status', value: ticket.status === 'open' ? '🟢 Aberto' : '🔴 Fechado', inline: true },
-        { name: 'Usuário', value: `<@${ticket.userId}>`, inline: true },
-        { name: 'Atendente', value: ticket.claimedBy ? `<@${ticket.claimedBy.id}>` : 'Nenhum', inline: true },
-        { name: 'Criado em', value: `<t:${Math.floor(ticket.createdAt.getTime() / 1000)}:F>`, inline: true }
-      )
-      .setDescription(`📝 **Descrição:**\n${ticket.description}`);
-
-    await message.reply({ embeds: [infoEmbed] });
+    await message.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(CONFIG.colors.primary)
+          .setTitle(`📋 Ticket #${ticket.id}`)
+          .addFields(
+            { name: 'Tipo', value: ticket.typeName, inline: true },
+            { name: 'Status', value: ticket.status === 'open' ? '🟢 Aberto' : '🔴 Fechado', inline: true },
+            { name: 'Usuário', value: `<@${ticket.userId}>`, inline: true },
+            { name: 'Atendente', value: ticket.claimedBy ? `<@${ticket.claimedBy.id}>` : 'Nenhum', inline: true },
+            { name: 'Criado em', value: `<t:${Math.floor(ticket.createdAt.getTime() / 1000)}:F>`, inline: true }
+          )
+          .setDescription(`📝 **Descrição:**\n${ticket.description}`),
+      ],
+    });
     return;
   }
 
-  // ===== Comandos de embed (apenas staff) =====
-  const embedCommands = ['anuncio', 'regras', 'vagas', 'parceria', 'boasvindas', 'helpembed'];
-  if (embedCommands.includes(command)) {
-    if (!isStaff(message.member)) {
-      return message.reply('❌ Apenas a staff pode usar comandos de embed.');
-    }
-
-    try {
-      if (command === 'anuncio') await handleAnuncio(message, args);
-      else if (command === 'regras') await handleRegras(message);
-      else if (command === 'vagas') await handleVagas(message, args);
-      else if (command === 'parceria') await handleParceria(message, args);
-      else if (command === 'boasvindas') await handleBoasVindas(message, args);
-      else if (command === 'helpembed') await handleHelpEmbed(message);
-    } catch (error) {
-      console.error(`❌ Erro no comando !${command}:`, error);
-      try {
-        await message.reply(`❌ Erro ao executar comando: ${error.message}`);
-      } catch (e) {}
-    }
+  // !help - Lista todos os comandos
+  if (command === 'help' || command === 'ajuda') {
+    await message.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(CONFIG.colors.primary)
+          .setTitle('📚 Comandos do Vindra Bot')
+          .addFields(
+            { name: '🎫 Tickets', value: '`!painel` `!fechar` `!info`' },
+            { name: '📨 Mensagens', value: '`!painel-embeds` (abre painel com botões)' },
+            { name: '❓ Ajuda', value: '`!help`' }
+          )
+          .setFooter({ text: 'Vindra Code • Apenas staff usa os comandos de embed' }),
+      ],
+    });
+    return;
   }
 });
 
@@ -1013,5 +1251,5 @@ client.on('messageCreate', async (message) => {
 
 client.login(process.env.DISCORD_TOKEN).catch((error) => {
   console.error('❌ Erro ao conectar:', error.message);
-  console.log('\nVerifique se o DISCORD_TOKEN está configurado corretamente no arquivo .env');
+  console.log('\nVerifique se o DISCORD_TOKEN está configurado corretamente.');
 });
